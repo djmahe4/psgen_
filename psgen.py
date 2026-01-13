@@ -6,6 +6,7 @@ import json
 from typing import List
 from duckduckgo_search import DDGS
 import google.generativeai as genai
+import logging
 from models import NewsItem, Problem, Solution, ProblemWithSolution
 
 
