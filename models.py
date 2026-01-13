@@ -2,7 +2,7 @@
 Pydantic models for data validation and structure.
 """
 from typing import List, Optional
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class NewsItem(BaseModel):
@@ -20,7 +20,8 @@ class Problem(BaseModel):
     severity: str = Field(..., description="Severity level: low, medium, high, critical")
     location: str = Field(..., description="Location where the problem exists")
     
-    @validator('severity')
+    @field_validator('severity')
+    @classmethod
     def validate_severity(cls, v):
         allowed = ['low', 'medium', 'high', 'critical']
         if v.lower() not in allowed:
@@ -35,7 +36,8 @@ class Solution(BaseModel):
     implementation_steps: List[str] = Field(..., description="Steps to implement the solution")
     estimated_impact: str = Field(..., description="Expected impact of the solution")
     
-    @validator('difficulty')
+    @field_validator('difficulty')
+    @classmethod
     def validate_difficulty(cls, v):
         allowed = ['easy', 'medium', 'hard']
         if v.lower() not in allowed:

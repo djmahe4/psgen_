@@ -2,6 +2,7 @@
 Streamlit Web UI for Problem Statement Generator.
 """
 import os
+import json
 import streamlit as st
 import folium
 from streamlit_folium import st_folium
@@ -259,14 +260,12 @@ def main():
             
             # Download option
             if st.session_state.problem_solutions:
-                import json
-                
                 # Prepare data for download
                 export_data = []
                 for ps in st.session_state.problem_solutions:
                     export_data.append({
-                        "problem": ps.problem.dict(),
-                        "solution": ps.solution.dict() if ps.solution else None
+                        "problem": ps.problem.model_dump(),
+                        "solution": ps.solution.model_dump() if ps.solution else None
                     })
                 
                 json_str = json.dumps(export_data, indent=2)
