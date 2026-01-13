@@ -5,8 +5,8 @@ A LangChain-based tool that uses DuckDuckGo search to find localized news, extra
 ## ✨ Features
 
 - 🗺️ **Interactive Map Selection**: Choose any location on an interactive map
-- 📰 **Local News Search**: Uses DuckDuckGo to fetch latest local news
-- 🤖 **AI-Powered Analysis**: Leverages Google GenerativeAI (Gemini) to:
+- 📰 **Local News Search**: Uses LangChain's DuckDuckGo integration to fetch latest local news
+- 🤖 **AI-Powered Analysis**: Leverages LangChain with Google Gemini to:
   - Extract problems from news articles
   - Estimate number of people affected
   - Sort problems by impact
@@ -22,7 +22,7 @@ A LangChain-based tool that uses DuckDuckGo search to find localized news, extra
 The main interface features:
 - **Left Sidebar**: Configuration panel with API key input and adjustable settings for number of news articles
 - **Main Area**: Two-tab interface for selecting location and viewing results
-- **About Section**: Lists the technologies used (DuckDuckGo, Google GenAI, Pydantic, Interactive map)
+- **About Section**: Lists the technologies used (LangChain DuckDuckGo, Google Gemini, Pydantic, Interactive map)
 - **Interactive Map**: Click anywhere on the map to select a location for analysis
 
 ### Results View - Problems & Solutions
@@ -50,10 +50,10 @@ pip install -r requirements.txt
 3. Configure API keys:
 ```bash
 cp .env.example .env
-# Edit .env and add your Google GenerativeAI API key
+# Edit .env and add your Google Gemini API key
 ```
 
-Get your Google GenAI API key from: https://makersuite.google.com/app/apikey
+Get your Google Gemini API key from: https://aistudio.google.com/app/apikey
 
 ## 📖 Usage
 
@@ -68,7 +68,7 @@ The app will open in your browser at `http://localhost:8501`
 
 ### Using the Application
 
-1. **Configure API Key**: Enter your Google GenAI API key in the sidebar
+1. **Configure API Key**: Enter your Google Gemini API key in the sidebar
 2. **Select Location**: Click on the map to select a location or enter a custom location name
 3. **Generate Problems**: Click "Generate Problem Statements" to analyze local news
 4. **Review Results**: Switch to the "View Problems & Solutions" tab to see:
@@ -125,13 +125,13 @@ for item in results:
 ```
 User Selects Location
     ↓
-DuckDuckGo Search (News)
+LangChain DuckDuckGo Search (News)
     ↓
-Google GenAI (Extract Problems)
+LangChain Google Gemini (Extract Problems)
     ↓
 Sort by Affected People
     ↓
-Google GenAI (Generate Solutions)
+LangChain Google Gemini (Generate Solutions)
     ↓
 Display in UI / Return Results
 ```
@@ -139,8 +139,8 @@ Display in UI / Return Results
 ## 🛠️ Technologies Used
 
 - **LangChain**: Framework for LLM applications
-- **DuckDuckGo Search**: Privacy-focused search engine
-- **Google GenerativeAI (Gemini)**: AI model for analysis
+- **LangChain Community**: DuckDuckGo search integration
+- **LangChain Google GenAI**: Google Gemini integration for AI analysis
 - **Pydantic**: Data validation and parsing
 - **Streamlit**: Web application framework
 - **Folium**: Interactive mapping library
@@ -150,8 +150,7 @@ Display in UI / Return Results
 See `requirements.txt` for complete list:
 - Python 3.8+
 - langchain & langchain-community
-- duckduckgo-search
-- google-generativeai
+- langchain-google-genai
 - pydantic
 - streamlit
 - folium & streamlit-folium
@@ -167,8 +166,15 @@ See LICENSE file for details.
 
 ## 🔐 Privacy & Security
 
+**Security Features:**
+- **Input Sanitization**: All user inputs are sanitized to prevent injection attacks
+- **Path Traversal Protection**: Filename sanitization prevents directory traversal vulnerabilities
+- **Prompt Injection Prevention**: Location inputs are validated before being used in AI prompts
+- **No Command Execution**: Special characters that could enable command injection are filtered
+
+**Privacy:**
 - API keys are stored locally in `.env` file (not committed to git)
-- DuckDuckGo search does not track users
+- LangChain DuckDuckGo search respects privacy
 - No personal data is collected or stored
 - All processing happens client-side or through configured APIs
 

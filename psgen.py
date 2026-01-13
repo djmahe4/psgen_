@@ -3,18 +3,43 @@ Core backend functionality for problem statement generation.
 """
 import os
 import json
+import re
 from typing import List
-from duckduckgo_search import DDGS
-import google.generativeai as genai
+from langchain_community.tools import DuckDuckGoSearchRun
+from langchain_google_genai import ChatGoogleGenerativeAI
 import logging
 from models import NewsItem, Problem, Solution, ProblemWithSolution
 
 
+def sanitize_input(text: str, max_length: int = 200) -> str:
+    """
+    Sanitize user input to prevent injection attacks.
+    
+    Args:
+        text: The input text to sanitize
+        max_length: Maximum allowed length
+        
+    Returns:
+        Sanitized text
+    """
+    if not text:
+        return ""
+    
+    # Remove control characters and limit length
+    text = text.strip()[:max_length]
+    
+    # Remove any potential command injection characters
+    # Keep only alphanumeric, spaces, commas, hyphens, and basic punctuation
+    text = re.sub(r'[^\w\s,.\-()]', '', text)
+    
+    return text
+
+
 class NewsSearchTool:
-    """Tool for searching localized news using DuckDuckGo."""
+    """Tool for searching localized news using LangChain's DuckDuckGo integration."""
     
     def __init__(self):
-        self.ddgs = DDGS()
+        self.search = DuckDuckGoSearchRun()
     
     def search_local_news(self, location: str, max_results: int = 10) -> List[NewsItem]:
         """
@@ -27,21 +52,45 @@ class NewsSearchTool:
         Returns:
             List of NewsItem objects
         """
+        # Sanitize location input to prevent injection
+        location = sanitize_input(location, max_length=100)
+        if not location:
+            logging.warning("Empty location provided after sanitization")
+            return []
+        
         # Create search query for local news and problems
         query = f"{location} local news problems issues"
         
         try:
-            results = self.ddgs.text(query, max_results=max_results)
+            # DuckDuckGoSearchRun returns a string with search results
+            results_text = self.search.run(query)
+            
+            # Parse the results and create NewsItem objects
+            # The results are typically formatted as snippets
             news_items = []
             
-            for result in results:
-                news_item = NewsItem(
-                    title=result.get('title', ''),
-                    snippet=result.get('body', ''),
-                    link=result.get('href', ''),
-                    source=result.get('source', None)
-                )
-                news_items.append(news_item)
+            # Split results into sections (each result is typically on its own line or paragraph)
+            result_sections = results_text.split('\n\n') if '\n\n' in results_text else [results_text]
+            
+            for i, section in enumerate(result_sections[:max_results]):
+                if section.strip():
+                    # Create a news item from each section
+                    news_item = NewsItem(
+                        title=f"News Item {i+1} - {location}",
+                        snippet=section.strip(),
+                        link=f"https://duckduckgo.com/?q={query.replace(' ', '+')}",
+                        source="DuckDuckGo Search"
+                    )
+                    news_items.append(news_item)
+            
+            # If we didn't get enough items, create at least one with all results
+            if not news_items and results_text.strip():
+                news_items.append(NewsItem(
+                    title=f"Search Results - {location}",
+                    snippet=results_text.strip()[:500],  # Limit to 500 chars
+                    link=f"https://duckduckgo.com/?q={query.replace(' ', '+')}",
+                    source="DuckDuckGo Search"
+                ))
             
             return news_items
         except Exception as e:
@@ -50,11 +99,14 @@ class NewsSearchTool:
 
 
 class ProblemExtractor:
-    """Extract problems from news items using Google GenAI."""
+    """Extract problems from news items using LangChain Google GenAI."""
     
     def __init__(self, api_key: str):
-        genai.configure(api_key=api_key)
-        self.model = genai.GenerativeModel('gemini-pro')
+        self.llm = ChatGoogleGenerativeAI(
+            model="gemini-2.5-flash-latest",
+            google_api_key=api_key,
+            temperature=0.7
+        )
     
     def extract_problems(self, news_items: List[NewsItem], location: str) -> List[Problem]:
         """
@@ -67,6 +119,12 @@ class ProblemExtractor:
         Returns:
             List of Problem objects sorted by number of affected people
         """
+        # Sanitize location input to prevent prompt injection
+        location = sanitize_input(location, max_length=100)
+        if not location:
+            logging.warning("Empty location provided after sanitization")
+            return []
+        
         # Prepare news content for analysis
         news_content = "\n\n".join([
             f"Title: {item.title}\nContent: {item.snippet}"
@@ -98,8 +156,8 @@ Response format (JSON array):
 """
         
         try:
-            response = self.model.generate_content(prompt)
-            response_text = response.text.strip()
+            response = self.llm.invoke(prompt)
+            response_text = response.content.strip()
             
             # Extract JSON from response (handle markdown code blocks)
             if "```json" in response_text:
@@ -116,7 +174,7 @@ Response format (JSON array):
                     problem = Problem(**prob_data)
                     problems.append(problem)
                 except Exception as e:
-                    print(f"Error validating problem: {e}")
+                    logging.error(f"Error validating problem: {e}")
                     continue
             
             # Sort by number of affected people (descending)
@@ -124,16 +182,19 @@ Response format (JSON array):
             
             return problems
         except Exception as e:
-            print(f"Error extracting problems: {e}")
+            logging.error(f"Error extracting problems: {e}", exc_info=True)
             return []
 
 
 class SolutionGenerator:
-    """Generate solutions for problems using Google GenAI."""
+    """Generate solutions for problems using LangChain Google GenAI."""
     
     def __init__(self, api_key: str):
-        genai.configure(api_key=api_key)
-        self.model = genai.GenerativeModel('gemini-pro')
+        self.llm = ChatGoogleGenerativeAI(
+            model="gemini-2.5-flash-latest",
+            google_api_key=api_key,
+            temperature=0.7
+        )
     
     def generate_solution(self, problem: Problem) -> Solution:
         """
@@ -175,8 +236,8 @@ Response format (JSON):
 """
         
         try:
-            response = self.model.generate_content(prompt)
-            response_text = response.text.strip()
+            response = self.llm.invoke(prompt)
+            response_text = response.content.strip()
             
             # Extract JSON from response (handle markdown code blocks)
             if "```json" in response_text:
@@ -189,7 +250,7 @@ Response format (JSON):
             
             return solution
         except Exception as e:
-            print(f"Error generating solution: {e}")
+            logging.error(f"Error generating solution: {e}", exc_info=True)
             # Return a default solution if generation fails
             return Solution(
                 necessity="Unable to generate solution details",

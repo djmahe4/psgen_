@@ -3,6 +3,7 @@ Streamlit Web UI for Problem Statement Generator.
 """
 import os
 import json
+import re
 import streamlit as st
 import folium
 from streamlit_folium import st_folium
@@ -11,6 +12,28 @@ from psgen import ProblemStatementGenerator
 
 # Load environment variables
 load_dotenv()
+
+
+def sanitize_filename(filename: str) -> str:
+    """
+    Sanitize filename to prevent path traversal attacks.
+    
+    Args:
+        filename: The filename to sanitize
+        
+    Returns:
+        Sanitized filename safe for use
+    """
+    # Remove any path separators and parent directory references
+    filename = os.path.basename(filename)
+    # Remove any non-alphanumeric characters except dash, underscore, and dot
+    filename = re.sub(r'[^\w\-\.]', '_', filename)
+    # Limit length
+    filename = filename[:100]
+    # Ensure it doesn't start with a dot (hidden file)
+    if filename.startswith('.'):
+        filename = '_' + filename[1:]
+    return filename or "download"
 
 # Page configuration
 st.set_page_config(
@@ -159,10 +182,10 @@ def main():
         
         # API Key input
         api_key = st.text_input(
-            "Google GenAI API Key",
+            "Google Gemini API Key",
             type="password",
             value=os.getenv("GOOGLE_API_KEY", ""),
-            help="Enter your Google GenerativeAI API key"
+            help="Enter your Google Gemini API key from https://aistudio.google.com/app/apikey"
         )
         
         # Number of news articles
@@ -178,8 +201,8 @@ def main():
         st.markdown("### About")
         st.markdown("""
         This tool uses:
-        - 🔍 DuckDuckGo for news search
-        - 🤖 Google GenAI for analysis
+        - 🔍 LangChain DuckDuckGo for news search
+        - 🤖 Google Gemini 2.5 Flash for AI analysis
         - 📊 Pydantic for validation
         - 🗺️ Interactive map selection
         """)
@@ -222,7 +245,7 @@ def main():
             with col2:
                 if st.button("🚀 Generate Problem Statements", type="primary", use_container_width=True):
                     if not api_key:
-                        st.error("❌ Please enter your Google GenAI API key in the sidebar")
+                        st.error("❌ Please enter your Google Gemini API key in the sidebar")
                     else:
                         # Generate problem statements
                         with st.spinner("🔄 Searching for news and analyzing problems..."):
@@ -269,10 +292,14 @@ def main():
                     })
                 
                 json_str = json.dumps(export_data, indent=2)
+                
+                # Sanitize the location name for filename
+                safe_location = sanitize_filename(st.session_state.selected_location)
+                
                 st.download_button(
                     label="📥 Download Results as JSON",
                     data=json_str,
-                    file_name=f"problems_{st.session_state.selected_location.replace(' ', '_')}.json",
+                    file_name=f"problems_{safe_location}.json",
                     mime="application/json"
                 )
 

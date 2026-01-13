@@ -14,12 +14,12 @@ pip install -r requirements.txt
 
 # Set up environment variables
 cp .env.example .env
-# Edit .env and add your Google GenAI API key
+# Edit .env and add your Google Gemini API key
 ```
 
 ### 2. Get API Key
 
-1. Visit [Google AI Studio](https://makersuite.google.com/app/apikey)
+1. Visit [Google AI Studio](https://aistudio.google.com/app/apikey)
 2. Sign in with your Google account
 3. Click "Create API Key"
 4. Copy the API key and add it to your `.env` file
@@ -41,7 +41,7 @@ The application will open in your default browser at `http://localhost:8501`
 ### Step 1: Configure Settings
 
 In the left sidebar:
-- **Google GenAI API Key**: Enter your API key (or set it in `.env`)
+- **Google Gemini API Key**: Enter your API key (or set it in `.env`)
 - **Number of News Articles**: Choose how many articles to analyze (5-20)
 
 ### Step 2: Select Location
@@ -207,9 +207,9 @@ Problems are automatically sorted by the number of people affected (descending),
 - Verify DuckDuckGo is accessible in your region
 
 ### API Errors
-- Verify your Google GenAI API key is valid
+- Verify your Google Gemini API key is valid
 - Check if you have remaining quota
-- Ensure the API is enabled in Google Cloud Console
+- Ensure the API is enabled in Google AI Studio
 
 ### Validation Errors
 - Check that problem descriptions are meaningful

@@ -32,8 +32,29 @@ jobs:
     - name: Test module imports
       run: |
         python -c "from models import NewsItem, Problem, Solution, ProblemWithSolution; print('✓ Models module imported successfully')"
-        python -c "from psgen import NewsSearchTool, ProblemExtractor, SolutionGenerator, ProblemStatementGenerator; print('✓ PSGen module imported successfully')"
+        python -c "from psgen import NewsSearchTool, ProblemExtractor, SolutionGenerator, ProblemStatementGenerator, sanitize_input; print('✓ PSGen module imported successfully')"
         python -c "import app; print('✓ App module imported successfully')"
+    
+    - name: Test security sanitization
+      run: |
+        python -c "
+from psgen import sanitize_input
+from app import sanitize_filename
+
+# Test input sanitization
+assert sanitize_input('San Francisco') == 'San Francisco'
+assert '../' not in sanitize_input('../../../etc/passwd')
+assert ';' not in sanitize_input('test; rm -rf /')
+print('✓ Input sanitization works correctly')
+
+# Test filename sanitization  
+assert '/' not in sanitize_filename('../../../etc/passwd')
+assert '\\\\' not in sanitize_filename('..\\\\..\\\\hack')
+assert '..' not in sanitize_filename('../../file.txt')
+print('✓ Filename sanitization works correctly')
+
+print('✅ Security sanitization tests passed')
+        "
     
     - name: Test Pydantic models
       run: |
