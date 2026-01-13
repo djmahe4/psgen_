@@ -1,0 +1,177 @@
+name: Test Modules
+
+on:
+  push:
+    branches: [ main, copilot/** ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.9', '3.10', '3.11']
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+        cache: 'pip'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Test module imports
+      run: |
+        python -c "from models import NewsItem, Problem, Solution, ProblemWithSolution; print('✓ Models module imported successfully')"
+        python -c "from psgen import NewsSearchTool, ProblemExtractor, SolutionGenerator, ProblemStatementGenerator; print('✓ PSGen module imported successfully')"
+        python -c "import app; print('✓ App module imported successfully')"
+    
+    - name: Test Pydantic models
+      run: |
+        python -c "
+from models import NewsItem, Problem, Solution
+        
+# Test NewsItem
+news = NewsItem(title='Test', snippet='Test snippet', link='https://example.com')
+assert news.title == 'Test'
+print('✓ NewsItem validation works')
+
+# Test Problem with severity validation
+problem = Problem(
+    description='Test problem',
+    affected_people=1000,
+    severity='high',
+    location='Test City'
+)
+assert problem.severity == 'high'
+assert problem.affected_people == 1000
+print('✓ Problem validation works')
+
+# Test Solution with difficulty validation
+solution = Solution(
+    necessity='Test necessity',
+    difficulty='medium',
+    implementation_steps=['Step 1', 'Step 2'],
+    estimated_impact='High impact'
+)
+assert solution.difficulty == 'medium'
+assert len(solution.implementation_steps) == 2
+print('✓ Solution validation works')
+
+print('✅ All Pydantic model tests passed')
+        "
+    
+    - name: Test model validation errors
+      run: |
+        python -c "
+from models import Problem
+import sys
+
+# Test invalid severity
+try:
+    Problem(
+        description='Test',
+        affected_people=100,
+        severity='invalid',
+        location='Test'
+    )
+    print('❌ Should have raised validation error for invalid severity')
+    sys.exit(1)
+except ValueError as e:
+    print('✓ Severity validation error caught correctly')
+
+# Test negative affected_people
+try:
+    Problem(
+        description='Test',
+        affected_people=-100,
+        severity='high',
+        location='Test'
+    )
+    print('❌ Should have raised validation error for negative affected_people')
+    sys.exit(1)
+except ValueError as e:
+    print('✓ Affected people validation error caught correctly')
+
+print('✅ Model validation tests passed')
+        "
+    
+    - name: Test NewsSearchTool initialization
+      run: |
+        python -c "
+from psgen import NewsSearchTool
+
+tool = NewsSearchTool()
+print('✓ NewsSearchTool initialized successfully')
+print('✅ NewsSearchTool test passed')
+        "
+    
+    - name: Test model serialization
+      run: |
+        python -c "
+from models import Problem, Solution, ProblemWithSolution
+
+problem = Problem(
+    description='Test problem',
+    affected_people=1000,
+    severity='high',
+    location='Test'
+)
+
+solution = Solution(
+    necessity='Test',
+    difficulty='easy',
+    implementation_steps=['Step 1'],
+    estimated_impact='Impact'
+)
+
+# Test model_dump (Pydantic v2)
+problem_dict = problem.model_dump()
+assert isinstance(problem_dict, dict)
+assert problem_dict['description'] == 'Test problem'
+print('✓ model_dump() works correctly')
+
+# Test model_dump_json (Pydantic v2)
+problem_json = problem.model_dump_json()
+assert isinstance(problem_json, str)
+assert 'Test problem' in problem_json
+print('✓ model_dump_json() works correctly')
+
+# Test ProblemWithSolution
+ps = ProblemWithSolution(problem=problem, solution=solution)
+ps_dict = ps.model_dump()
+assert 'problem' in ps_dict
+assert 'solution' in ps_dict
+print('✓ ProblemWithSolution serialization works')
+
+print('✅ Model serialization tests passed')
+        "
+    
+    - name: Check code syntax
+      run: |
+        python -m py_compile models.py
+        python -m py_compile psgen.py
+        python -m py_compile app.py
+        echo "✅ All Python files have valid syntax"
+    
+    - name: Print test summary
+      if: success()
+      run: |
+        echo "================================"
+        echo "✅ ALL TESTS PASSED"
+        echo "================================"
+        echo "Python version: ${{ matrix.python-version }}"
+        echo "Modules tested:"
+        echo "  - models.py (Pydantic v2 compatibility)"
+        echo "  - psgen.py (Core backend)"
+        echo "  - app.py (Streamlit UI)"
+        echo "================================"

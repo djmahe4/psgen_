@@ -14,6 +14,26 @@ A LangChain-based tool that uses DuckDuckGo search to find localized news, extra
 - ✅ **Pydantic Validation**: Ensures data quality and structure
 - 🎨 **Beautiful Web UI**: Built with Streamlit for easy interaction
 
+## 📸 Screenshots
+
+### Main Interface - Location Selection
+![Main Interface](https://github.com/user-attachments/assets/30709c6a-d626-4a2f-a007-c7bf5cae4e98)
+
+The main interface features:
+- **Left Sidebar**: Configuration panel with API key input and adjustable settings for number of news articles
+- **Main Area**: Two-tab interface for selecting location and viewing results
+- **About Section**: Lists the technologies used (DuckDuckGo, Google GenAI, Pydantic, Interactive map)
+- **Interactive Map**: Click anywhere on the map to select a location for analysis
+
+### Results View - Problems & Solutions
+![Results View](https://github.com/user-attachments/assets/7c5e23bd-b1b2-4142-b1b0-6c74e8ee15c1)
+
+The results view shows:
+- **Step-by-step workflow**: Clear guidance through the analysis process
+- **Problems sorted by impact**: Most affected communities appear first
+- **Color-coded severity**: Visual indicators for critical, high, medium, and low severity issues
+- **AI-generated solutions**: Detailed implementation plans with difficulty ratings
+
 ## 🚀 Installation
 
 1. Clone the repository:
