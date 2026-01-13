@@ -144,8 +144,8 @@ problem = Problem(
 )
 
 # Validate data automatically
-print(problem.dict())  # Convert to dictionary
-print(problem.json())  # Convert to JSON string
+print(problem.model_dump())  # Convert to dictionary
+print(problem.model_dump_json())  # Convert to JSON string
 
 # Models enforce validation
 try:
