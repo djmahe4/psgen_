@@ -44,7 +44,7 @@ class NewsSearchTool:
             
             return news_items
         except Exception as e:
-            print(f"Error searching news: {e}")
+            logging.error(f"Error searching news: {e}", exc_info=True)
             return []
 
 
