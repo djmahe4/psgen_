@@ -1,0 +1,164 @@
+[
+  {
+    "id": "trend-001",
+    "comparison_type": "temporal",
+    "domain": "water-infrastructure",
+    "description": "Year-over-year comparison of water supply failures in the same city",
+    "input": {
+      "arm_1": {
+        "label": "[City], 2024",
+        "news_items": [
+          {
+            "title": "Water outage hits eastern district for third time this year",
+            "summary": "Approximately 50,000 residents in the eastern district experienced their third major water outage of 2024, lasting 3–5 days each time. Officials blame ageing pipes installed in the 1980s. Repair costs have totalled $1.2M year-to-date.",
+            "source": "City Herald"
+          },
+          {
+            "title": "Infrastructure report flags water network as 'at risk'",
+            "summary": "A municipal audit found that 35% of the city's water distribution pipes are past their service life. The eastern and northern districts are most vulnerable. Budget for replacement has not been allocated.",
+            "source": "Public Works Monitor"
+          }
+        ],
+        "extracted_problem": {
+          "description": "Recurring water outages due to ageing pipe infrastructure affecting eastern district residents",
+          "affected_people": 50000,
+          "severity": "medium"
+        }
+      },
+      "arm_2": {
+        "label": "[City], 2025",
+        "news_items": [
+          {
+            "title": "Major pipe burst cuts water to 70,000 households for 10 days",
+            "summary": "A catastrophic pipe failure in the main distribution trunk line has cut water supply to 70,000 households. Health authorities have warned of disease risk. Emergency tankers are insufficient to meet demand. Engineers say full repair will take 10–14 days.",
+            "source": "City Herald"
+          },
+          {
+            "title": "Backup reservoir contaminated during flooding, worsening crisis",
+            "summary": "Floodwaters entered the backup reservoir during last week's storm, contaminating the city's only emergency water reserve. Officials say no clean backup supply is now available for the 70,000 affected residents.",
+            "source": "Environmental Watch"
+          },
+          {
+            "title": "Hospital emergency water supply critical as pipe crisis continues",
+            "summary": "Three hospitals have activated emergency protocols as the water crisis enters its second week. Surgical procedures have been postponed. City officials have requested federal disaster relief.",
+            "source": "Health Daily"
+          }
+        ],
+        "extracted_problem": {
+          "description": "Critical water supply failure affecting 70,000 residents with contaminated backup reserve and health emergency",
+          "affected_people": 70000,
+          "severity": "critical"
+        }
+      }
+    },
+    "output": {
+      "topic": "water supply infrastructure failures",
+      "comparison_type": "temporal",
+      "arm_1": {
+        "label": "[City], 2024",
+        "affected_people": 50000,
+        "severity": "medium",
+        "article_count": 2
+      },
+      "arm_2": {
+        "label": "[City], 2025",
+        "affected_people": 70000,
+        "severity": "critical",
+        "article_count": 3
+      },
+      "people_change_pct": 40.0,
+      "severity_delta": 2,
+      "trend": "increasing",
+      "confidence": 0.82,
+      "key_differences": [
+        "Affected population increased 40% (50,000 → 70,000)",
+        "Severity escalated two levels: medium → critical",
+        "New cascading problem in 2025: backup reservoir contaminated",
+        "Healthcare system impact appeared for first time in 2025"
+      ],
+      "insights": [
+        "The 2024 outages were symptomatic of the same infrastructure failure that became catastrophic in 2025; the audit warning that year was not acted upon.",
+        "The jump from medium to critical severity (2 levels) in a single year is a strong indicator of rapid structural deterioration, not a one-off event.",
+        "The appearance of hospital and reservoir impacts in 2025 signals a cascading failure pattern — each unresolved failure creates conditions for the next."
+      ],
+      "anomalies": [
+        "Arm 2 has one more article than Arm 1; after normalisation per article, the per-article affected count also increased (23,333 vs 25,000 → 7% real increase in coverage-adjusted terms), confirming the trend is not coverage-driven."
+      ],
+      "recommendation": "Immediately escalate to critical-level solution generation. The trajectory shows the problem will continue worsening annually without infrastructure investment. The 2024 audit should be used as the evidence base for an emergency funding application."
+    }
+  },
+  {
+    "id": "trend-002",
+    "comparison_type": "spatial",
+    "domain": "air-quality",
+    "description": "Cross-regional comparison of air quality problems between two cities",
+    "input": {
+      "arm_1": {
+        "label": "City A (industrial zone)",
+        "news_items": [
+          {
+            "title": "AQI exceeds 200 for 15th consecutive day in City A industrial district",
+            "summary": "Air quality in the industrial district has remained in the 'very unhealthy' range for over two weeks. Respiratory clinic visits have increased 45%. Schools in three wards have cancelled outdoor activities. Factory emissions are the primary identified cause.",
+            "source": "Environment Monitor A"
+          }
+        ],
+        "extracted_problem": {
+          "description": "Persistent very unhealthy air quality from factory emissions causing respiratory health impact",
+          "affected_people": 300000,
+          "severity": "high"
+        }
+      },
+      "arm_2": {
+        "label": "City B (transport hub)",
+        "news_items": [
+          {
+            "title": "City B air quality worsens as vehicle registrations hit record high",
+            "summary": "Vehicle registrations in City B have reached 4 million, contributing to AQI readings between 100–150 (unhealthy for sensitive groups) on most weekdays. Asthma hospital admissions are up 20% this year. Public transport investment has lagged.",
+            "source": "Transport Daily B"
+          }
+        ],
+        "extracted_problem": {
+          "description": "Worsening air quality from vehicle emissions affecting sensitive population groups",
+          "affected_people": 180000,
+          "severity": "medium"
+        }
+      }
+    },
+    "output": {
+      "topic": "urban air quality deterioration",
+      "comparison_type": "spatial",
+      "arm_1": {
+        "label": "City A (industrial zone)",
+        "affected_people": 300000,
+        "severity": "high",
+        "article_count": 1
+      },
+      "arm_2": {
+        "label": "City B (transport hub)",
+        "affected_people": 180000,
+        "severity": "medium",
+        "article_count": 1
+      },
+      "people_change_pct": -40.0,
+      "severity_delta": -1,
+      "trend": "decreasing",
+      "confidence": 0.55,
+      "key_differences": [
+        "City A affects 300,000 residents at 'high' severity vs City B's 180,000 at 'medium' severity",
+        "City A's primary source is industrial emissions; City B's is vehicle traffic",
+        "City A has had continuous 15-day high-AQI episodes; City B's pollution is more variable",
+        "Both cities show health system impact (respiratory clinics / asthma admissions)"
+      ],
+      "insights": [
+        "City A presents the more severe case by both population impact and severity level, suggesting industrial emission regulation is a more urgent intervention target than transport reform.",
+        "The different root causes (industry vs transport) mean solutions are not transferable between cities — each requires a tailored approach.",
+        "City B's trajectory (record vehicle registrations, lagging public transport) suggests its problem will worsen if no action is taken; it may reach City A's severity level in 2–3 years."
+      ],
+      "anomalies": [
+        "Only 1 article per arm — low article count reduces confidence to 0.55. Recommend running additional searches before making high-confidence policy recommendations.",
+        "City populations unknown; per-capita comparison not possible — the absolute affected_people figures may not reflect true comparative severity."
+      ],
+      "recommendation": "Prioritise City A for immediate industrial emission regulation. Flag City B for medium-term transport and urban planning intervention to prevent escalation."
+    }
+  }
+]

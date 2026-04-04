@@ -1,0 +1,180 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "TrendComparisonOutput",
+  "description": "Structured output from the trend-comparator skill summarising how a problem has changed across time or regions.",
+  "type": "object",
+  "required": ["topic", "comparison_type", "trend", "confidence", "key_differences", "insights"],
+  "additionalProperties": false,
+  "properties": {
+    "topic": {
+      "type": "string",
+      "description": "The problem category being compared (e.g., 'water supply failures', 'air quality', 'flooding').",
+      "maxLength": 100,
+      "examples": ["flooding and storm-drain failures", "hospital overcrowding"]
+    },
+    "comparison_type": {
+      "type": "string",
+      "enum": ["temporal", "spatial", "multi_dimensional"],
+      "description": "Whether the comparison is across time (temporal), across regions (spatial), or both.",
+      "examples": ["temporal"]
+    },
+    "arm_1": {
+      "type": "object",
+      "description": "Description of the baseline comparison arm.",
+      "required": ["label", "affected_people", "severity"],
+      "properties": {
+        "label": {
+          "type": "string",
+          "description": "Human-readable label for this arm (e.g., 'City A, 2024' or 'Region X').",
+          "examples": ["[City], 2024", "Region A"]
+        },
+        "affected_people": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Estimated affected population in this arm.",
+          "examples": [50000]
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["low", "medium", "high", "critical"],
+          "examples": ["medium"]
+        },
+        "article_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of news articles used for this arm.",
+          "examples": [6]
+        }
+      }
+    },
+    "arm_2": {
+      "type": "object",
+      "description": "Description of the comparison arm.",
+      "required": ["label", "affected_people", "severity"],
+      "properties": {
+        "label": {
+          "type": "string",
+          "examples": ["[City], 2025", "Region B"]
+        },
+        "affected_people": {
+          "type": "integer",
+          "minimum": 0,
+          "examples": [70000]
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["low", "medium", "high", "critical"],
+          "examples": ["high"]
+        },
+        "article_count": {
+          "type": "integer",
+          "minimum": 0,
+          "examples": [8]
+        }
+      }
+    },
+    "people_change_pct": {
+      "type": ["number", "null"],
+      "description": "Percentage change in affected population from arm_1 to arm_2. Null if arm_1.affected_people is 0.",
+      "examples": [40.0, -15.5, null]
+    },
+    "severity_delta": {
+      "type": "integer",
+      "description": "Change in severity rank (low=1, medium=2, high=3, critical=4). Positive means escalation.",
+      "minimum": -3,
+      "maximum": 3,
+      "examples": [1, 0, -1]
+    },
+    "trend": {
+      "type": "string",
+      "enum": ["increasing", "decreasing", "stable", "new_emerging", "undetected_in_period"],
+      "description": "Overall trend classification derived from people_change_pct and severity_delta.",
+      "examples": ["increasing"]
+    },
+    "confidence": {
+      "type": "number",
+      "description": "Confidence in the trend classification: 0.0 (inconclusive) to 1.0 (high confidence). See trend_signals.md for thresholds.",
+      "minimum": 0,
+      "maximum": 1,
+      "examples": [0.75, 0.4, 0.9]
+    },
+    "key_differences": {
+      "type": "array",
+      "description": "Bullet-point factual differences between the two arms. Each item is a single, specific observation.",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 10 },
+      "examples": [
+        [
+          "Affected population increased 40% (50,000 → 70,000)",
+          "Severity escalated from medium to high",
+          "New sub-problem emerged: contamination of backup reservoir"
+        ]
+      ]
+    },
+    "insights": {
+      "type": "array",
+      "description": "Interpretive statements explaining what the differences mean and why. Each item is a sentence or short paragraph.",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 20 },
+      "examples": [
+        [
+          "The 40% increase in affected population suggests the infrastructure problem is structural, not event-driven.",
+          "The severity escalation to 'high' means the issue now qualifies for emergency budget allocation.",
+          "Article volume increased proportionally, reducing the risk of a coverage-inflation artifact."
+        ]
+      ]
+    },
+    "anomalies": {
+      "type": "array",
+      "description": "List of detected anomaly signals (see trend_signals.md) that may affect reliability of the trend classification.",
+      "items": { "type": "string" },
+      "examples": [
+        ["Arm 2 article count is 3× higher than Arm 1 — possible media attention surge"],
+        ["Comparison spans different seasons — seasonal variation may inflate change"]
+      ]
+    },
+    "recommendation": {
+      "type": ["string", "null"],
+      "description": "Single recommended action based on the trend, surfaced in the UI.",
+      "maxLength": 300,
+      "examples": [
+        "Escalate to a high-priority solution generation task; the rising trend suggests deterioration will continue without intervention.",
+        null
+      ]
+    }
+  },
+  "examples": [
+    {
+      "topic": "flooding and storm-drain failures",
+      "comparison_type": "temporal",
+      "arm_1": {
+        "label": "[City], 2024",
+        "affected_people": 50000,
+        "severity": "medium",
+        "article_count": 6
+      },
+      "arm_2": {
+        "label": "[City], 2025",
+        "affected_people": 70000,
+        "severity": "high",
+        "article_count": 8
+      },
+      "people_change_pct": 40.0,
+      "severity_delta": 1,
+      "trend": "increasing",
+      "confidence": 0.78,
+      "key_differences": [
+        "Affected population increased 40% (50,000 → 70,000) year-over-year",
+        "Severity escalated from medium to high",
+        "New sub-problem detected in 2025: contamination of backup reservoir during flood events"
+      ],
+      "insights": [
+        "The consistent 40% increase in affected residents across two non-catastrophic years indicates a structural deterioration in stormwater infrastructure, not an event-driven spike.",
+        "Severity escalation to 'high' means the problem now meets the threshold for emergency budget allocation.",
+        "The emergence of reservoir contamination as a secondary problem suggests cascading infrastructure failure if no intervention occurs."
+      ],
+      "anomalies": [],
+      "recommendation": "Escalate to high-priority solution generation. Rising trend with severity escalation; deterioration will continue without infrastructure investment."
+    }
+  ]
+}

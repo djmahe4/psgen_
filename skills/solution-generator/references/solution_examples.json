@@ -1,0 +1,86 @@
+[
+  {
+    "id": "sol-001",
+    "domain": "water-infrastructure",
+    "problem": {
+      "description": "Major water supply failure leaving 180,000 residents without tap water for up to 10 days",
+      "affected_people": 180000,
+      "severity": "critical",
+      "location": "Eastern District, [City]"
+    },
+    "solution": {
+      "title": "Emergency water distribution and phased pipe replacement",
+      "description": "Deploy tankers immediately for emergency relief while conducting a survey and executing a phased pipe replacement programme. Installing IoT sensors prevents future failures by enabling proactive leak detection.",
+      "steps": [
+        "Deploy 25 water tankers to serve priority locations (hospitals, schools, elderly care) within 24 hours — city water authority.",
+        "Establish 10 community water collection points with daily 200-litre-per-household allocation within 48 hours.",
+        "Complete pipe condition survey of the 15 km affected network within 2 weeks — certified contractor.",
+        "Award pipe replacement contract (PVC, corrosion-resistant) targeting 6-month completion — public tender.",
+        "Install pressure and flow sensors at 20 network junctions for real-time leak monitoring.",
+        "Train a 24/7 rapid-response team (8 staff, 4 vehicles) with 2-hour SLA for burst-pipe incidents."
+      ],
+      "difficulty": "medium",
+      "estimated_cost": "$3M – $6M over 18 months",
+      "expected_impact": "Restore full water supply to 180,000 residents within 10 days (tankers); eliminate recurring outages within 18 months; reduce burst incidents by ~80%.",
+      "short_term_action": "Deploy tankers and open community collection points within 24 hours.",
+      "stakeholders": ["City water authority", "Certified engineering contractor", "Central government (capital funding)", "Resident welfare associations", "Hospitals and schools (priority allocation)"]
+    },
+    "generator_notes": "Short-term (tankers) + long-term (pipe replacement + IoT) both present. Difficulty is medium not hard because pipe replacement is proven technology and funding pathway (municipal + central grant) is standard."
+  },
+  {
+    "id": "sol-002",
+    "domain": "public-health",
+    "problem": {
+      "description": "Foodborne illness outbreak from central market contamination affecting 20,000 daily visitors",
+      "affected_people": 20000,
+      "severity": "high",
+      "location": "Central Market District, [City]"
+    },
+    "solution": {
+      "title": "Contain outbreak, enforce vendor health standards, and establish permanent food safety regime",
+      "description": "Immediate containment through market closure and case treatment, followed by vendor re-certification and a permanent rapid-testing laboratory to prevent recurrence.",
+      "steps": [
+        "Close the affected market section for 72 hours and deploy public health officers to identify and isolate contaminated stalls — health authority.",
+        "Set up free testing and treatment centres at 3 locations near the market within 24 hours.",
+        "Conduct rapid microbiological testing of food samples from all 200+ vendors within 5 days.",
+        "Issue re-opening permits only to vendors passing hygiene inspection and completing a 4-hour food-safety training — municipal licensing body.",
+        "Establish a permanent rapid-test laboratory at the market funded by a vendor licensing fee surcharge.",
+        "Launch a visible hygiene rating display (A/B/C) at each stall, updated quarterly."
+      ],
+      "difficulty": "easy",
+      "estimated_cost": "$80,000 – $150,000 over 6 months",
+      "expected_impact": "Contain current outbreak within 7 days; reduce foodborne illness cases at this market by ~70% within 12 months.",
+      "short_term_action": "Close affected stalls and open treatment centres within 24 hours.",
+      "stakeholders": ["Municipal health authority", "Market administration body", "Laboratory services", "Vendor associations", "City licensing office"]
+    },
+    "generator_notes": "Difficulty easy because containment and vendor certification are low-cost, proven approaches with clear authority. Permanent lab funded by vendor fee avoids ongoing budget dependency."
+  },
+  {
+    "id": "sol-003",
+    "domain": "transportation-infrastructure",
+    "problem": {
+      "description": "Chronic signal failures on northern rail causing daily 45–90-minute delays for 65,000 commuters",
+      "affected_people": 65000,
+      "severity": "medium",
+      "location": "Northern Rail Corridor, [Region]"
+    },
+    "solution": {
+      "title": "Modernise rail signalling system through phased replacement and interim reliability measures",
+      "description": "Bridge the funding gap with quick-win maintenance interventions while securing capital for full digital signalling upgrade. A phased rollout avoids full service disruption and allows learning across zones.",
+      "steps": [
+        "Conduct an emergency condition audit of all signal equipment on the 80 km corridor within 4 weeks — rail authority engineering team.",
+        "Replace the 20 % of signal units with highest failure rates within 3 months using existing maintenance budget (estimated $400k).",
+        "Apply for central government infrastructure grant for full digital signalling upgrade (estimated $8M) — submit within 60 days.",
+        "Procure and install European Train Control System (ETCS) Level 1 equipment in 4 phased zones over 24 months.",
+        "Run parallel manual back-up protocol during each zone upgrade to cap delays at 15 minutes.",
+        "Publish live delay data via open API and commuter app to manage passenger expectations during rollout."
+      ],
+      "difficulty": "hard",
+      "estimated_cost": "$8.5M – $12M over 30 months",
+      "expected_impact": "Reduce average daily delays from 45–90 minutes to < 5 minutes within 30 months; improve punctuality from ~60% to ~92% on-time.",
+      "short_term_action": "Replace top-20% failure-prone signal units within 3 months using existing budget.",
+      "stakeholders": ["Rail authority", "Central government (grant funder)", "Signalling equipment vendor (ETCS-certified)", "Commuter advisory group", "Regional transport ministry"]
+    },
+    "generator_notes": "Difficulty hard due to multi-year timeline and large capital requirement. However the short-term action (replace worst 20%) is achievable within existing budget and provides immediate relief."
+  }
+]
