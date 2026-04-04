@@ -1,74 +1,148 @@
 """
-LangGraph agentic workflow for the Problem Statement Generator.
+LangGraph agentic workflow for the Problem Statement Generator — Step 5.
 
-Flow:
-  planner → researcher → extractor → solver → critic
-                                         ↑_________|  (if score < threshold)
+Architecture
+============
+    START → researcher → extractor → solver → critic → planner
+                                                  ↑          │
+                               "regenerate" ──────┘          │ "finish"
+                                                             ↓
+                                                        formatter → END
 
-Feature flags (read from env):
-  ENABLE_AGENT_MODE          — use this graph instead of linear psgen.py
-  ENABLE_CRITIC              — run the critic/regeneration loop
-  ENABLE_RAG                 — inject past solutions from vector store
-  ENABLE_FULL_ARTICLE_FETCH  — fetch full text for high-severity snippets
+Design decisions
+----------------
+* All LLM calls use LCEL chains with ``.with_structured_output()`` — zero
+  manual JSON parsing anywhere in this file.
+* ``ProblemList`` / ``SolutionList`` wrappers allow a single LLM call to
+  return a typed list of structured objects.
+* ``planner_node`` is a pure Python function (no LLM) — it reads critique
+  scores from state and sets ``next_step`` for the conditional edge.
+* ``run_agentic_workflow()`` is the single public entry point.
+* Feature flags are read once at import time from environment variables.
+* LangSmith tracing is enabled automatically when
+  ``LANGCHAIN_TRACING_V2=true`` and ``LANGCHAIN_API_KEY`` are set.
 
-Observability:
-  LANGCHAIN_TRACING_V2=true + LANGCHAIN_API_KEY  → LangSmith traces
+Feature flags (set in .env)
+----------------------------
+  ENABLE_CRITIC              — run the critic/regeneration loop (default: true)
+  ENABLE_RAG                 — inject past solutions from vector store (default: false)
+  ENABLE_FULL_ARTICLE_FETCH  — fetch full article text for severe snippets (default: false)
+  CRITIC_SCORE_THRESHOLD     — minimum acceptable avg critic score (default: 7)
+  MAX_ITERATIONS             — hard cap on solver→critic loops (default: 3)
 """
 from __future__ import annotations
 
 import logging
 import os
-from typing import Annotated, Any, Dict, List, Optional, Sequence, TypedDict
+from typing import Annotated, Any, Dict, List, Literal, Optional, TypedDict
 
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langgraph.graph import END, StateGraph, add_messages
+from langgraph.graph import END, StateGraph
+from langgraph.graph.message import add_messages
+from pydantic import BaseModel, Field
 
-from models import Critique, NewsItem, Problem, ProblemWithSolution, Solution
-from tools import (
-    critique_solution_tool,
-    extract_problems_tool,
-    fetch_full_article,
-    generate_solutions_tool,
-    search_news,
-)
+from models import Critique, Problem, ProblemWithSolution, Solution
+from tools import fetch_full_article, search_news
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Feature flags
+# Feature flags — read once at import time
 # ---------------------------------------------------------------------------
-ENABLE_CRITIC = os.getenv("ENABLE_CRITIC", "true").lower() == "true"
-ENABLE_RAG = os.getenv("ENABLE_RAG", "false").lower() == "true"
-ENABLE_FULL_ARTICLE_FETCH = os.getenv("ENABLE_FULL_ARTICLE_FETCH", "false").lower() == "true"
-CRITIC_SCORE_THRESHOLD = int(os.getenv("CRITIC_SCORE_THRESHOLD", "7"))
-MAX_ITERATIONS = 3
+ENABLE_CRITIC: bool = os.getenv("ENABLE_CRITIC", "true").lower() == "true"
+ENABLE_RAG: bool = os.getenv("ENABLE_RAG", "false").lower() == "true"
+ENABLE_FULL_ARTICLE_FETCH: bool = (
+    os.getenv("ENABLE_FULL_ARTICLE_FETCH", "false").lower() == "true"
+)
+CRITIC_SCORE_THRESHOLD: int = int(os.getenv("CRITIC_SCORE_THRESHOLD", "7"))
+MAX_ITERATIONS: int = int(os.getenv("MAX_ITERATIONS", "3"))
 
 # ---------------------------------------------------------------------------
-# Agent state
+# Pydantic wrappers for structured list outputs
 # ---------------------------------------------------------------------------
+
+
+class ProblemList(BaseModel):
+    """
+    Wrapper that lets a single ``.with_structured_output()`` call return
+    multiple validated ``Problem`` objects without any manual JSON parsing.
+    """
+
+    problems: List[Problem] = Field(
+        default_factory=list,
+        description=(
+            "All distinct societal problems identified from the news batch, "
+            "sorted by affected_people descending."
+        ),
+    )
+
+
+class SolutionList(BaseModel):
+    """
+    Wrapper that lets a single ``.with_structured_output()`` call return
+    one validated ``Solution`` per problem, preserving order.
+    """
+
+    solutions: List[Solution] = Field(
+        default_factory=list,
+        description=(
+            "One solution per input problem, returned in the same order "
+            "as the problems list."
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Typed agent state
+# ---------------------------------------------------------------------------
+
 
 class AgentState(TypedDict):
-    """Shared mutable state threaded through every graph node."""
+    """
+    Shared mutable state passed through every graph node.
 
-    messages: Annotated[Sequence[BaseMessage], add_messages]
+    Fields
+    ------
+    messages        Append-only conversation history (LangGraph managed).
+    query           The original user query string.
+    context         Optional enriched context (e.g. map-selected location).
+                    Falls back to ``query`` when not provided.
+    news_items      Raw news article dicts from the researcher node.
+    problems        Validated ``Problem`` dicts from the extractor node.
+    solutions       Validated ``Solution`` dicts from the solver node.
+    critiques       Validated ``Critique`` dicts from the critic node.
+    iteration_count Number of completed solver→critic cycles.
+    final_output    Assembled result dict produced by the formatter node.
+    next_step       Routing signal set by planner_node: "regenerate" | "finish".
+    """
+
+    messages: Annotated[List[BaseMessage], add_messages]
     query: str
-    location: str
+    context: Optional[str]
     news_items: List[dict]
     problems: List[dict]
     solutions: List[dict]
     critiques: List[dict]
     iteration_count: int
-    final_results: List[dict]
-    reasoning_steps: List[str]  # surfaced in UI
+    final_output: Optional[dict]
+    next_step: str  # "regenerate" | "finish"
 
 
 # ---------------------------------------------------------------------------
 # LLM factory
 # ---------------------------------------------------------------------------
 
+
 def _make_llm(api_key: str, temperature: float = 0.4) -> ChatGoogleGenerativeAI:
+    """
+    Instantiate ChatGoogleGenerativeAI with Gemini 2.5 Flash.
+
+    LangSmith tracing is activated automatically when the environment
+    variables ``LANGCHAIN_TRACING_V2=true`` and ``LANGCHAIN_API_KEY`` are set.
+    """
     return ChatGoogleGenerativeAI(
         model="gemini-2.5-flash-latest",
         google_api_key=api_key,
@@ -77,310 +151,365 @@ def _make_llm(api_key: str, temperature: float = 0.4) -> ChatGoogleGenerativeAI:
 
 
 # ---------------------------------------------------------------------------
-# Node: planner
+# LCEL chain builders
 # ---------------------------------------------------------------------------
 
-def planner_node(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
-    """
-    Decide what the agent should do based on the incoming query.
-    Adds a planning message to state and returns the enriched location string.
-    """
-    api_key: str = config["configurable"]["api_key"]
-    llm = _make_llm(api_key).with_config(run_name="planner")
 
-    system = SystemMessage(
-        content=(
-            "You are a planning assistant for a civic problem-analysis tool. "
-            "Given the user query, extract:\n"
-            "1. The primary location (city, country).\n"
-            "2. A concise search query string for DuckDuckGo (max 15 words).\n"
-            "Reply ONLY with JSON: {\"location\": \"...\", \"search_query\": \"...\"}"
-        )
+def _extractor_chain(llm: ChatGoogleGenerativeAI):
+    """
+    LCEL chain: ChatPromptTemplate | llm.with_structured_output(ProblemList)
+
+    Uses ``.with_structured_output()`` — no JSON parsing, no regex, no try/except
+    around raw text.  Gemini returns a validated ``ProblemList`` directly.
+
+    Template variables: ``context``, ``news_text``
+    """
+    system = (
+        "You are a civic analyst. Extract ALL distinct societal problems from "
+        "the news articles below.\n\n"
+        "Rules:\n"
+        "- description: ≤200 chars, specific noun phrase (root cause, not symptom)\n"
+        "- affected_people: realistic integer ≥0 (use population tiers when unknown)\n"
+        "- severity: exactly one of low / medium / high / critical\n"
+        "- location: most specific geographic unit mentioned\n"
+        "- evidence: direct quote or headline fragment (omit if unavailable)\n"
+        "- Deduplicate: never include the same root cause twice\n"
+        "- Sort by affected_people descending\n\n"
+        "Few-shot example:\n"
+        "Input: 'Chennai floods displace 200,000 residents after 3 days of rain.'\n"
+        "Output problem: description='Seasonal flooding displacing hundreds of thousands "
+        "of Chennai residents', affected_people=200000, severity='critical', "
+        "location='Chennai, Tamil Nadu', evidence='floods displace 200,000 residents'"
     )
-    human = HumanMessage(content=state["query"])
-    response = llm.invoke([system, human])
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", system),
+            ("human", "Location/context: {context}\n\nNews articles:\n{news_text}"),
+        ]
+    )
+    return (prompt | llm.with_structured_output(ProblemList)).with_config(
+        run_name="extractor-chain"
+    )
 
-    import json, re
 
-    raw = response.content.strip()
-    # Strip markdown fences if present
-    raw = re.sub(r"```(?:json)?", "", raw).strip().strip("`")
-    try:
-        plan = json.loads(raw)
-        location = plan.get("location", state["query"])
-        search_query = plan.get("search_query", f"{location} problems issues")
-    except Exception:
-        location = state["query"]
-        search_query = f"{location} problems issues"
+def _solver_chain(llm: ChatGoogleGenerativeAI):
+    """
+    LCEL chain: ChatPromptTemplate | llm.with_structured_output(SolutionList)
 
-    step = f"📌 Planner: location='{location}', query='{search_query}'"
-    logger.info(step)
+    Accepts an optional ``improvement_context`` block injected by the solver
+    node when iterating after a low critic score.
 
-    return {
-        "location": location,
-        "query": search_query,
-        "reasoning_steps": state.get("reasoning_steps", []) + [step],
-        "messages": [AIMessage(content=step)],
-    }
+    Template variables: ``problems_text``, ``improvement_context``
+    """
+    system = (
+        "You are a civic solutions expert. Generate ONE realistic, step-based "
+        "solution for EACH problem listed below.\n\n"
+        "Rules per solution:\n"
+        "- necessity: why urgent; what happens without intervention\n"
+        "- difficulty: exactly one of easy / medium / hard\n"
+        "- implementation_steps: ≥3 ordered steps, each starting with an imperative "
+        "verb naming the responsible actor\n"
+        "- estimated_impact: quantified or clearly qualified outcome\n"
+        "- estimated_cost: rough range with currency (null if genuinely unknown)\n"
+        "- Return solutions in the SAME ORDER as the input problems\n"
+        "- Include a short-term action (≤30 days) in step 1\n\n"
+        "{improvement_context}"
+    )
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", system),
+            ("human", "Problems to solve:\n{problems_text}"),
+        ]
+    )
+    return (prompt | llm.with_structured_output(SolutionList)).with_config(
+        run_name="solver-chain"
+    )
+
+
+def _critic_chain(llm: ChatGoogleGenerativeAI):
+    """
+    LCEL chain: ChatPromptTemplate | llm.with_structured_output(Critique)
+
+    Called once per (problem, solution) pair.
+
+    Template variables: ``problem_text``, ``solution_text``
+    """
+    system = (
+        "You are an independent policy critic. Evaluate the solution strictly "
+        "and honestly — avoid sycophancy.\n\n"
+        "Score each dimension 1–10 (5 = neutral / unverified):\n"
+        "  realism_score          — proven in comparable real-world contexts?\n"
+        "  feasibility_score      — resources, governance, and capacity available locally?\n"
+        "  cost_effectiveness_score — benefit proportional to cost and effort?\n\n"
+        "overall_score = round((realism + feasibility + cost_effectiveness) / 3)\n\n"
+        "Also provide:\n"
+        "  unintended_consequences — ≥1 concrete risk or side-effect\n"
+        "  improvement_suggestions — ≥1 specific, actionable fix\n"
+        "  reasoning               — ≥50 words explaining all scores\n\n"
+        "Calibration anchors (realism):\n"
+        "  10 = proven in multiple comparable contexts\n"
+        "   5 = theoretically sound, limited real-world evidence\n"
+        "   1 = relies on technology or capacity that does not exist"
+    )
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", system),
+            (
+                "human",
+                "PROBLEM:\n{problem_text}\n\nSOLUTION:\n{solution_text}",
+            ),
+        ]
+    )
+    return (prompt | llm.with_structured_output(Critique)).with_config(
+        run_name="critic-chain"
+    )
 
 
 # ---------------------------------------------------------------------------
 # Node: researcher
 # ---------------------------------------------------------------------------
 
-def researcher_node(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
-    """Search DuckDuckGo for news and optionally fetch full articles."""
-    location = state["location"]
-    query = state["query"]
-    api_key: str = config["configurable"]["api_key"]
-    max_results: int = config["configurable"].get("max_results", 10)
 
-    # Parallel sub-queries (query expansion)
-    sub_queries = [
-        f"{location} problems issues 2025",
-        f"{location} crisis latest news",
+def researcher_node(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
+    """
+    Fetch recent news for the query using three expanded sub-queries via
+    the ``search_news`` tool from ``tools.py``.
+
+    Optionally calls ``fetch_full_article`` for snippets that contain
+    high-severity keywords when ``ENABLE_FULL_ARTICLE_FETCH=true``.
+
+    Reads from state : query, context
+    Writes to state  : news_items, messages
+    """
+    from psgen import sanitize_input  # local import to avoid circular at module level
+
+    api_key: str = config["configurable"]["api_key"]
+    max_results: int = int(config["configurable"].get("max_results", 10))
+
+    raw_query = state["query"]
+    raw_context = state.get("context") or raw_query
+
+    query = sanitize_input(raw_query, 200)
+    context = sanitize_input(raw_context, 200)
+
+    # Query expansion: three complementary sub-queries
+    sub_queries: List[str] = [
+        f"{context} problems issues 2025",
+        f"{context} crisis latest news",
         query,
     ]
 
+    seen_keys: set = set()
     all_items: List[dict] = []
-    seen_snippets: set = set()
+    fetch_per_query = max(1, max_results // 2)
 
     for sq in sub_queries:
-        results = search_news.invoke({"query": sq, "max_results": max_results // 2 + 1})
+        results: List[dict] = search_news.invoke(
+            {"query": sq, "max_results": fetch_per_query}
+        )
         for item in results:
-            key = item.get("snippet", "")[:80]
-            if key not in seen_snippets:
-                seen_snippets.add(key)
+            # Deduplicate by first-80-char snippet fingerprint
+            key = (item.get("snippet") or "")[:80].strip().lower()
+            if key and key not in seen_keys:
+                seen_keys.add(key)
                 all_items.append(item)
 
-    # Optional full-article fetch for snippets containing severity keywords
+    # Optional full-article fetch for high-severity snippets
     if ENABLE_FULL_ARTICLE_FETCH:
-        high_sev_keywords = {"death", "casualty", "collapse", "outbreak", "flood", "disaster"}
+        high_sev_kw = {
+            "death", "casualty", "collapse", "outbreak",
+            "flood", "disaster", "fatality", "emergency",
+        }
         for item in all_items:
-            snippet_lower = item.get("snippet", "").lower()
-            if any(kw in snippet_lower for kw in high_sev_keywords):
-                full_text = fetch_full_article.invoke({"url": item.get("link", "")})
+            snippet_lower = (item.get("snippet") or "").lower()
+            if any(kw in snippet_lower for kw in high_sev_kw):
+                full_text: str = fetch_full_article.invoke(
+                    {"url": item.get("link", "")}
+                )
                 if not full_text.startswith("ERROR"):
                     item["snippet"] = full_text[:800]
 
-    step = f"🔍 Researcher: fetched {len(all_items)} news items for '{location}'"
-    logger.info(step)
+    trimmed = all_items[:max_results]
+    msg = AIMessage(
+        content=f"🔍 Researcher: fetched {len(trimmed)} articles for '{context}'"
+    )
+    logger.info(msg.content)
 
-    return {
-        "news_items": all_items[:max_results],
-        "reasoning_steps": state.get("reasoning_steps", []) + [step],
-        "messages": [AIMessage(content=step)],
-    }
+    return {"news_items": trimmed, "messages": [msg]}
 
 
 # ---------------------------------------------------------------------------
 # Node: extractor
 # ---------------------------------------------------------------------------
 
+
 def extractor_node(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
-    """Extract and rank problems from news items using structured LLM output."""
+    """
+    Extract and rank societal problems from ``news_items`` using the
+    ``_extractor_chain`` LCEL chain with ``.with_structured_output(ProblemList)``.
+
+    No manual JSON parsing — Pydantic validation happens inside the chain.
+
+    Reads from state : news_items, context, query
+    Writes to state  : problems, messages
+    """
     api_key: str = config["configurable"]["api_key"]
-    news_items = state["news_items"]
-    location = state["location"]
+    news_items: List[dict] = state["news_items"]
+    context: str = state.get("context") or state["query"]
 
     if not news_items:
-        step = "⚠️ Extractor: no news items to process"
-        return {
-            "problems": [],
-            "reasoning_steps": state.get("reasoning_steps", []) + [step],
-            "messages": [AIMessage(content=step)],
-        }
+        msg = AIMessage(content="⚠️ Extractor: no news items to process")
+        return {"problems": [], "messages": [msg]}
 
-    llm = _make_llm(api_key, temperature=0.3).with_config(run_name="extractor")
-    structured_llm = llm.with_structured_output(Problem)
-
-    # Build condensed news text
+    # Build condensed news text (cap each snippet to avoid token overflow)
     news_text = "\n\n".join(
-        f"[{i+1}] {it.get('title','')}\n{it.get('snippet','')[:400]}"
+        f"[{i + 1}] {it.get('title', '')}\n{(it.get('snippet') or '')[:500]}"
         for i, it in enumerate(news_items)
     )
 
-    # RAG injection
-    rag_context = ""
+    llm = _make_llm(api_key, temperature=0.3)
+    chain = _extractor_chain(llm)
+
+    # RAG hook: inject past problems for deduplication (when enabled)
+    rag_hint = ""
     if ENABLE_RAG:
         try:
-            from memory.store import retrieve_similar_problems
-            past = retrieve_similar_problems(location, k=3)
+            from memory.store import retrieve_similar_problems  # type: ignore
+
+            past = retrieve_similar_problems(context, k=3)
             if past:
-                rag_context = "\n\nPreviously identified similar problems:\n" + "\n".join(
+                rag_hint = "\n\nPreviously seen problems (avoid duplicating):\n" + "\n".join(
                     f"- {p}" for p in past
                 )
         except Exception as exc:
-            logger.warning("RAG retrieval failed: %s", exc)
-
-    system_prompt = (
-        "You are a civic analyst. Extract distinct societal problems from the "
-        "news below. For each problem fill ALL fields: description (≤200 chars, "
-        "specific), affected_people (realistic integer), severity "
-        "(low/medium/high/critical), location, evidence (direct quote or "
-        "headline). Focus on the most impactful problems first."
-        + rag_context
-    )
-
-    few_shot_examples = [
-        {
-            "news": "Chennai floods displace 200,000 residents after 3 days of heavy rain.",
-            "problem": {
-                "description": "Seasonal flooding displacing hundreds of thousands of Chennai residents",
-                "affected_people": 200000,
-                "severity": "critical",
-                "location": "Chennai, Tamil Nadu",
-                "evidence": "Chennai floods displace 200,000 residents",
-            },
-        }
-    ]
-
-    examples_text = "\n".join(
-        f"Example {i+1}:\nNews: {e['news']}\nOutput: {e['problem']}"
-        for i, e in enumerate(few_shot_examples)
-    )
-
-    full_prompt = (
-        f"{system_prompt}\n\n{examples_text}\n\n"
-        f"Now process these articles from {location}:\n{news_text}\n\n"
-        "List each distinct problem as a separate JSON object matching the "
-        "Problem schema. Return them as a JSON array."
-    )
-
-    import json as _json
+            logger.debug("RAG retrieval skipped: %s", exc)
 
     try:
-        # Use raw LLM here to get a list (structured_output works per item)
-        raw_llm = _make_llm(api_key, temperature=0.3).with_config(run_name="extractor")
-        response = raw_llm.invoke(full_prompt)
-        raw_text = response.content.strip()
-
-        # Strip markdown fences
-        import re
-        raw_text = re.sub(r"```(?:json)?", "", raw_text).strip().strip("`")
-
-        # Parse
-        data = _json.loads(raw_text)
-        if isinstance(data, dict):
-            data = [data]
-
-        problems = []
-        seen_descs: set = set()
-        for item in data:
-            try:
-                p = Problem(**item)
-                # Dedup by truncated description
-                key = p.description[:60]
-                if key not in seen_descs:
-                    seen_descs.add(key)
-                    problems.append(p.model_dump())
-            except Exception as ve:
-                logger.warning("extractor: validation error — %s", ve)
-
-        # Sort by affected_people descending
+        result: ProblemList = chain.invoke(
+            {"context": context + rag_hint, "news_text": news_text}
+        )
+        problems: List[dict] = [p.model_dump() for p in result.problems]
+        # Ensure sorted by impact (extractor prompt requests this, but enforce it)
         problems.sort(key=lambda x: x.get("affected_people", 0), reverse=True)
-
-        # Store in RAG
-        if ENABLE_RAG:
-            try:
-                from memory.store import store_problems
-                store_problems(location, [p["description"] for p in problems])
-            except Exception as exc:
-                logger.warning("RAG store failed: %s", exc)
-
-        step = f"🧩 Extractor: found {len(problems)} problems in '{location}'"
-        logger.info(step)
     except Exception as exc:
-        logger.error("extractor_node error: %s", exc)
+        logger.error("extractor_node: chain failed — %s", exc, exc_info=True)
         problems = []
-        step = f"⚠️ Extractor: failed to extract problems — {exc}"
 
-    return {
-        "problems": problems,
-        "reasoning_steps": state.get("reasoning_steps", []) + [step],
-        "messages": [AIMessage(content=step)],
-    }
+    # RAG hook: store new problems for future sessions
+    if ENABLE_RAG and problems:
+        try:
+            from memory.store import store_problems  # type: ignore
+
+            store_problems(context, [p["description"] for p in problems])
+        except Exception as exc:
+            logger.debug("RAG store skipped: %s", exc)
+
+    msg = AIMessage(content=f"🧩 Extractor: found {len(problems)} problems")
+    logger.info(msg.content)
+
+    return {"problems": problems, "messages": [msg]}
 
 
 # ---------------------------------------------------------------------------
 # Node: solver
 # ---------------------------------------------------------------------------
 
+
 def solver_node(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
-    """Generate solutions for each problem, injecting critique feedback when available."""
+    """
+    Generate one ``Solution`` per extracted problem using the ``_solver_chain``
+    LCEL chain with ``.with_structured_output(SolutionList)``.
+
+    When iterating after a low critic score, injects the critic's
+    ``improvement_suggestions`` into the prompt via ``improvement_context``.
+
+    No manual JSON parsing — Pydantic validation happens inside the chain.
+
+    Reads from state : problems, critiques, iteration_count
+    Writes to state  : solutions, iteration_count, messages
+    """
     api_key: str = config["configurable"]["api_key"]
-    problems = state["problems"]
-    critiques = state.get("critiques", [])
-    iteration = state.get("iteration_count", 0)
+    problems: List[dict] = state["problems"]
+    critiques: List[dict] = state.get("critiques", [])
+    iteration: int = state.get("iteration_count", 0)
 
     if not problems:
-        step = "⚠️ Solver: no problems to solve"
-        return {
-            "solutions": [],
-            "reasoning_steps": state.get("reasoning_steps", []) + [step],
-            "messages": [AIMessage(content=step)],
-        }
+        msg = AIMessage(content="⚠️ Solver: no problems to solve")
+        return {"solutions": [], "messages": [msg]}
 
-    raw_llm = _make_llm(api_key, temperature=0.5).with_config(run_name=f"solver-iter-{iteration}")
-
-    import json as _json, re
-
-    solutions: List[dict] = []
-
-    for i, prob in enumerate(problems):
-        # Build improvement context from previous critique
-        improvement_ctx = ""
-        if critiques and i < len(critiques):
-            crit = critiques[i]
-            suggestions = crit.get("improvement_suggestions", [])
-            if suggestions:
-                improvement_ctx = (
-                    "\n\nPrevious critique score: "
-                    + str(crit.get("overall_score", "?"))
-                    + "/10. Please address these improvements:\n"
-                    + "\n".join(f"- {s}" for s in suggestions)
-                )
-
-        prompt = (
-            f"Generate a practical solution for this civic problem.\n\n"
-            f"Problem: {prob.get('description')}\n"
-            f"Location: {prob.get('location')}\n"
-            f"Affected people: {prob.get('affected_people'):,}\n"
-            f"Severity: {prob.get('severity')}\n"
-            f"{improvement_ctx}\n\n"
-            "Return a JSON object with keys:\n"
-            "  necessity (string), difficulty (easy/medium/hard),\n"
-            "  implementation_steps (list of strings, ≥3 concrete steps),\n"
-            "  estimated_impact (string), estimated_cost (string)\n"
-            "No markdown fences — pure JSON only."
-        )
-
-        try:
-            response = raw_llm.invoke(prompt)
-            raw_text = response.content.strip()
-            raw_text = re.sub(r"```(?:json)?", "", raw_text).strip().strip("`")
-            sol_data = _json.loads(raw_text)
-            sol = Solution(**sol_data)
-            solutions.append(sol.model_dump())
-        except Exception as exc:
-            logger.warning("solver_node: problem %d failed — %s", i, exc)
-            solutions.append(
-                Solution(
-                    necessity="Unable to generate solution",
-                    difficulty="medium",
-                    implementation_steps=["Consult local authorities", "Gather more data"],
-                    estimated_impact="Unknown",
-                ).model_dump()
+    # Build improvement context from previous critiques (if any)
+    improvement_lines: List[str] = []
+    for i, crit in enumerate(critiques):
+        suggestions: List[str] = crit.get("improvement_suggestions", [])
+        score: int = crit.get("overall_score", 10)
+        if suggestions:
+            improvement_lines.append(
+                f"Problem {i + 1} — previous critique score: {score}/10. "
+                f"You MUST address: {'; '.join(suggestions)}"
             )
 
-    step = f"💡 Solver (iter {iteration}): generated {len(solutions)} solutions"
-    logger.info(step)
+    improvement_context: str = (
+        "PREVIOUS CRITIQUE FEEDBACK — address every point below:\n"
+        + "\n".join(improvement_lines)
+        if improvement_lines
+        else ""
+    )
+
+    problems_text = "\n\n".join(
+        "Problem {n}:\n"
+        "  Description : {desc}\n"
+        "  Location    : {loc}\n"
+        "  Affected    : {aff:,}\n"
+        "  Severity    : {sev}".format(
+            n=i + 1,
+            desc=p.get("description", ""),
+            loc=p.get("location", ""),
+            aff=p.get("affected_people", 0),
+            sev=p.get("severity", ""),
+        )
+        for i, p in enumerate(problems)
+    )
+
+    llm = _make_llm(api_key, temperature=0.5)
+    chain = _solver_chain(llm)
+
+    _fallback_solution = Solution(
+        necessity="Unable to generate solution — please retry.",
+        difficulty="medium",
+        implementation_steps=[
+            "Consult local authorities to scope the problem.",
+            "Commission a rapid needs assessment.",
+            "Identify and engage relevant stakeholders.",
+        ],
+        estimated_impact="Unknown — assessment needed.",
+    )
+
+    try:
+        result: SolutionList = chain.invoke(
+            {
+                "improvement_context": improvement_context,
+                "problems_text": problems_text,
+            }
+        )
+        solutions: List[dict] = [s.model_dump() for s in result.solutions]
+
+        # Pad with fallbacks if the LLM returned fewer solutions than problems
+        while len(solutions) < len(problems):
+            solutions.append(_fallback_solution.model_dump())
+
+    except Exception as exc:
+        logger.error("solver_node: chain failed — %s", exc, exc_info=True)
+        solutions = [_fallback_solution.model_dump() for _ in problems]
+
+    msg = AIMessage(
+        content=f"💡 Solver (iter {iteration}): generated {len(solutions)} solutions"
+    )
+    logger.info(msg.content)
 
     return {
         "solutions": solutions,
         "iteration_count": iteration + 1,
-        "reasoning_steps": state.get("reasoning_steps", []) + [step],
-        "messages": [AIMessage(content=step)],
+        "messages": [msg],
     }
 
 
@@ -388,171 +517,270 @@ def solver_node(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
 # Node: critic
 # ---------------------------------------------------------------------------
 
+
 def critic_node(state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
-    """Score each solution; flag low-scoring ones for regeneration."""
+    """
+    Score every (problem, solution) pair using the ``_critic_chain`` LCEL
+    chain with ``.with_structured_output(Critique)``.
+
+    Attaches each ``Critique`` to its corresponding solution dict so the
+    formatter can embed it in the final output.
+
+    Skipped entirely (returns empty critiques) when ``ENABLE_CRITIC=false``.
+
+    No manual JSON parsing — Pydantic validation happens inside the chain.
+
+    Reads from state : problems, solutions, iteration_count
+    Writes to state  : critiques, solutions (with critique attached), messages
+    """
     if not ENABLE_CRITIC:
-        return {"critiques": [], "reasoning_steps": state.get("reasoning_steps", [])}
+        return {"critiques": [], "messages": []}
 
     api_key: str = config["configurable"]["api_key"]
-    problems = state["problems"]
-    solutions = state["solutions"]
+    problems: List[dict] = state["problems"]
+    solutions: List[dict] = state["solutions"]
+    iteration: int = state.get("iteration_count", 0)
 
-    import json as _json, re
+    llm = _make_llm(api_key, temperature=0.2)
+    chain = _critic_chain(llm)
 
-    raw_llm = _make_llm(api_key, temperature=0.2).with_config(run_name="critic")
+    _fallback_critique = Critique(
+        realism_score=5,
+        feasibility_score=5,
+        cost_effectiveness_score=5,
+        overall_score=5,
+        reasoning="Critique generation failed; default neutral scores assigned.",
+    )
+
     critiques: List[dict] = []
 
-    for i, (prob, sol) in enumerate(zip(problems, solutions)):
-        prompt = (
-            f"Critically evaluate this civic solution:\n\n"
-            f"PROBLEM: {prob.get('description')} ({prob.get('location')})\n"
-            f"Affected: {prob.get('affected_people'):,}, Severity: {prob.get('severity')}\n\n"
-            f"SOLUTION:\n"
-            f"  Necessity: {sol.get('necessity')}\n"
-            f"  Difficulty: {sol.get('difficulty')}\n"
-            f"  Steps: {sol.get('implementation_steps')}\n"
-            f"  Impact: {sol.get('estimated_impact')}\n"
-            f"  Cost: {sol.get('estimated_cost')}\n\n"
-            "Return a JSON object with keys:\n"
-            "  realism_score (1-10), feasibility_score (1-10),\n"
-            "  cost_effectiveness_score (1-10),\n"
-            "  unintended_consequences (list of strings),\n"
-            "  improvement_suggestions (list of strings),\n"
-            "  overall_score (1-10), reasoning (string ≥50 words)\n"
-            "Be honest and critical. No markdown fences."
+    for prob, sol in zip(problems, solutions):
+        problem_text = (
+            f"Description : {prob.get('description', '')}\n"
+            f"Location    : {prob.get('location', '')}\n"
+            f"Affected    : {prob.get('affected_people', 0):,}\n"
+            f"Severity    : {prob.get('severity', '')}"
         )
-
+        solution_text = (
+            f"Necessity   : {sol.get('necessity', '')}\n"
+            f"Difficulty  : {sol.get('difficulty', '')}\n"
+            f"Steps       : {sol.get('implementation_steps', [])}\n"
+            f"Impact      : {sol.get('estimated_impact', '')}\n"
+            f"Cost        : {sol.get('estimated_cost', 'N/A')}"
+        )
         try:
-            response = raw_llm.invoke(prompt)
-            raw_text = response.content.strip()
-            raw_text = re.sub(r"```(?:json)?", "", raw_text).strip().strip("`")
-            crit_data = _json.loads(raw_text)
-            crit = Critique(**crit_data)
+            crit: Critique = chain.invoke(
+                {"problem_text": problem_text, "solution_text": solution_text}
+            )
             critiques.append(crit.model_dump())
         except Exception as exc:
-            logger.warning("critic_node: solution %d failed — %s", i, exc)
-            critiques.append(
-                Critique(
-                    realism_score=5,
-                    feasibility_score=5,
-                    cost_effectiveness_score=5,
-                    overall_score=5,
-                    reasoning="Critique generation failed; using default scores.",
-                ).model_dump()
-            )
+            logger.warning("critic_node: critique failed for one pair — %s", exc)
+            critiques.append(_fallback_critique.model_dump())
 
-    # Attach critiques to solutions
+    # Attach each critique to its solution dict (in-place copy, not mutation)
+    updated_solutions: List[dict] = []
     for i, sol in enumerate(solutions):
+        updated = dict(sol)
         if i < len(critiques):
-            sol["critique"] = critiques[i]
+            updated["critique"] = critiques[i]
+        updated_solutions.append(updated)
 
-    avg_score = (
+    avg: float = (
         sum(c.get("overall_score", 5) for c in critiques) / len(critiques)
         if critiques
-        else 5
+        else 5.0
     )
-    step = (
-        f"🔎 Critic (iter {state.get('iteration_count', 0)}): "
-        f"avg score {avg_score:.1f}/10"
+    msg = AIMessage(
+        content=(
+            f"🔎 Critic (iter {iteration}): "
+            f"{len(critiques)} critiques, avg score {avg:.1f}/10"
+        )
     )
-    logger.info(step)
+    logger.info(msg.content)
 
     return {
         "critiques": critiques,
-        "solutions": solutions,
-        "reasoning_steps": state.get("reasoning_steps", []) + [step],
-        "messages": [AIMessage(content=step)],
+        "solutions": updated_solutions,
+        "messages": [msg],
     }
+
+
+# ---------------------------------------------------------------------------
+# Node: planner  (pure Python — no LLM call)
+# ---------------------------------------------------------------------------
+
+
+def planner_node(state: AgentState, _config: RunnableConfig) -> Dict[str, Any]:
+    """
+    Pure decision node — reads state and sets ``next_step``.
+
+    No LLM is called.  All routing logic is deterministic:
+
+    Decision tree
+    -------------
+    1. ``ENABLE_CRITIC`` is false  → "finish"
+    2. No critiques in state       → "finish"
+    3. ``iteration_count >= MAX_ITERATIONS`` → "finish" (hard cap)
+    4. avg(overall_score) < CRITIC_SCORE_THRESHOLD → "regenerate"
+    5. Otherwise → "finish"
+
+    Reads from state : critiques, iteration_count
+    Writes to state  : next_step, messages
+    """
+    iteration: int = state.get("iteration_count", 0)
+    critiques: List[dict] = state.get("critiques", [])
+
+    if not ENABLE_CRITIC or not critiques:
+        decision = "finish"
+        reason = "critic disabled or no critiques"
+    elif iteration >= MAX_ITERATIONS:
+        decision = "finish"
+        reason = f"max iterations ({MAX_ITERATIONS}) reached"
+    else:
+        avg = sum(c.get("overall_score", 10) for c in critiques) / len(critiques)
+        if avg < CRITIC_SCORE_THRESHOLD:
+            decision = "regenerate"
+            reason = f"avg score {avg:.1f} < threshold {CRITIC_SCORE_THRESHOLD}"
+        else:
+            decision = "finish"
+            reason = f"avg score {avg:.1f} ≥ threshold {CRITIC_SCORE_THRESHOLD}"
+
+    msg = AIMessage(
+        content=f"📋 Planner (iter {iteration}): {decision} — {reason}"
+    )
+    logger.info(msg.content)
+
+    return {"next_step": decision, "messages": [msg]}
 
 
 # ---------------------------------------------------------------------------
 # Node: formatter
 # ---------------------------------------------------------------------------
 
+
 def formatter_node(state: AgentState, _config: RunnableConfig) -> Dict[str, Any]:
-    """Combine problems + solutions into final ProblemWithSolution list."""
-    problems = state.get("problems", [])
-    solutions = state.get("solutions", [])
+    """
+    Assemble the ``final_output`` dict from validated problems and solutions.
 
-    final: List[dict] = []
-    for i, prob in enumerate(problems):
-        sol_data = solutions[i] if i < len(solutions) else None
+    Every pair is run through ``ProblemWithSolution`` Pydantic validation
+    before serialisation, guaranteeing schema consistency.
+
+    Reads from state : problems, solutions, critiques, iteration_count, context, query
+    Writes to state  : final_output, messages
+    """
+    problems: List[dict] = state.get("problems", [])
+    solutions: List[dict] = state.get("solutions", [])
+    critiques: List[dict] = state.get("critiques", [])
+
+    items: List[dict] = []
+    for i, prob_data in enumerate(problems):
+        sol_data: Optional[dict] = solutions[i] if i < len(solutions) else None
         try:
-            p = Problem(**prob)
-            s = Solution(**sol_data) if sol_data else None
+            # Validate through Pydantic — catches any schema drift
+            pws = ProblemWithSolution(
+                problem=Problem(**prob_data),
+                solution=Solution(**sol_data) if sol_data else None,
+                iteration=state.get("iteration_count", 0),
+            )
+            items.append(pws.model_dump())
         except Exception as exc:
-            logger.warning("formatter_node: validation error — %s", exc)
-            continue
+            logger.warning("formatter_node: validation error at index %d — %s", i, exc)
 
-        pws = ProblemWithSolution(
-            problem=p,
-            solution=s,
-            iteration=state.get("iteration_count", 0),
+    avg_score: Optional[float] = None
+    if critiques:
+        avg_score = round(
+            sum(c.get("overall_score", 5) for c in critiques) / len(critiques), 1
         )
-        final.append(pws.model_dump())
 
-    step = f"✅ Formatter: packaged {len(final)} results"
-    return {
-        "final_results": final,
-        "reasoning_steps": state.get("reasoning_steps", []) + [step],
-        "messages": [AIMessage(content=step)],
+    # Collect the reasoning trace from all AIMessages in conversation history
+    reasoning_trace: List[str] = [
+        m.content
+        for m in state.get("messages", [])
+        if isinstance(m, AIMessage) and m.content
+    ]
+
+    final_output: dict = {
+        "results": items,
+        "summary": {
+            "total_problems": len(items),
+            "location": state.get("context") or state.get("query", ""),
+            "iterations_used": state.get("iteration_count", 0),
+            "average_critique_score": avg_score,
+        },
+        "reasoning_trace": reasoning_trace,
     }
 
+    msg = AIMessage(
+        content=f"✅ Formatter: packaged {len(items)} problem-solution pairs"
+    )
+    logger.info(msg.content)
 
-# ---------------------------------------------------------------------------
-# Edge conditions
-# ---------------------------------------------------------------------------
-
-def _should_regenerate(state: AgentState) -> str:
-    """Return 'solver' if critic scores are below threshold, else 'formatter'."""
-    if not ENABLE_CRITIC:
-        return "formatter"
-
-    iteration = state.get("iteration_count", 0)
-    if iteration >= MAX_ITERATIONS:
-        return "formatter"
-
-    critiques = state.get("critiques", [])
-    if not critiques:
-        return "formatter"
-
-    avg = sum(c.get("overall_score", 10) for c in critiques) / len(critiques)
-    return "solver" if avg < CRITIC_SCORE_THRESHOLD else "formatter"
+    return {"final_output": final_output, "messages": [msg]}
 
 
 # ---------------------------------------------------------------------------
-# Graph builder
+# Conditional edge function
 # ---------------------------------------------------------------------------
+
+
+def _route_after_planner(state: AgentState) -> Literal["solver", "formatter"]:
+    """
+    Read ``next_step`` from state (set by ``planner_node``) and return the
+    name of the next node for LangGraph's conditional edge.
+    """
+    return "solver" if state.get("next_step") == "regenerate" else "formatter"
+
+
+# ---------------------------------------------------------------------------
+# Graph construction
+# ---------------------------------------------------------------------------
+
 
 def build_graph() -> StateGraph:
-    """Assemble the LangGraph StateGraph."""
-    graph = StateGraph(AgentState)
+    """
+    Assemble the LangGraph ``StateGraph`` without compiling.
 
-    graph.add_node("planner", planner_node)
-    graph.add_node("researcher", researcher_node)
-    graph.add_node("extractor", extractor_node)
-    graph.add_node("solver", solver_node)
-    graph.add_node("critic", critic_node)
-    graph.add_node("formatter", formatter_node)
+    Node map::
 
-    graph.set_entry_point("planner")
+        START → researcher → extractor → solver → critic → planner
+                                                               │
+                                    "regenerate" ─────────────→ solver
+                                    "finish"     ─────────────→ formatter → END
 
-    graph.add_edge("planner", "researcher")
-    graph.add_edge("researcher", "extractor")
-    graph.add_edge("extractor", "solver")
-    graph.add_edge("solver", "critic")
-    graph.add_conditional_edges(
-        "critic",
-        _should_regenerate,
+    Returns the un-compiled ``StateGraph`` so callers can optionally add
+    custom middleware (e.g., ``MemorySaver``) before compiling.
+    """
+    g = StateGraph(AgentState)
+
+    g.add_node("researcher", researcher_node)
+    g.add_node("extractor", extractor_node)
+    g.add_node("solver", solver_node)
+    g.add_node("critic", critic_node)
+    g.add_node("planner", planner_node)
+    g.add_node("formatter", formatter_node)
+
+    g.set_entry_point("researcher")
+
+    g.add_edge("researcher", "extractor")
+    g.add_edge("extractor", "solver")
+    g.add_edge("solver", "critic")
+    g.add_edge("critic", "planner")
+    g.add_conditional_edges(
+        "planner",
+        _route_after_planner,
         {"solver": "solver", "formatter": "formatter"},
     )
-    graph.add_edge("formatter", END)
+    g.add_edge("formatter", END)
 
-    return graph
+    return g
 
 
 def compile_graph():
-    """Return a compiled runnable graph."""
+    """
+    Build and compile the LangGraph instance.
+
+    Returns a ``CompiledGraph`` ready for ``.invoke()`` or ``.stream()``.
+    """
     return build_graph().compile()
 
 
@@ -560,42 +788,105 @@ def compile_graph():
 # Public entry point
 # ---------------------------------------------------------------------------
 
-def run_agent(
+
+def run_agentic_workflow(
     query: str,
     api_key: str,
+    context: Optional[str] = None,
     max_results: int = 10,
-) -> Dict[str, Any]:
+) -> dict:
     """
-    Run the full agentic pipeline for a user query.
+    Execute the full agentic workflow for a user query.
 
-    Returns a dict with keys:
-        final_results   — List[ProblemWithSolution as dict]
-        reasoning_steps — List[str] (for UI display)
-        messages        — conversation history
+    This is the single public entry point for the LangGraph pipeline.
+    It sanitizes inputs, constructs the initial state, runs the compiled
+    graph, and returns the structured final output.
+
+    Parameters
+    ----------
+    query : str
+        The user's search query — a location, topic, or natural-language
+        question (e.g. "What problems are there in Chennai?").
+    api_key : str
+        Google Gemini API key.
+    context : str, optional
+        Enriched context string, e.g. the location name selected on the map.
+        Falls back to ``query`` when not provided.
+    max_results : int
+        Maximum number of news articles to retrieve per run (default: 10).
+
+    Returns
+    -------
+    dict
+        Keys:
+          ``results``         — ``List[ProblemWithSolution]`` as dicts
+          ``summary``         — ``{total_problems, location, iterations_used,
+                                   average_critique_score}``
+          ``reasoning_trace`` — ``List[str]`` of node step messages for UI display
     """
-    graph = compile_graph()
+    from psgen import sanitize_input  # local import — avoids circular at module level
+
+    safe_query = sanitize_input(query or "", 200)
+    safe_context = sanitize_input(context or "", 200) or None
+
+    if not safe_query:
+        return {
+            "results": [],
+            "summary": {
+                "total_problems": 0,
+                "location": "",
+                "iterations_used": 0,
+                "average_critique_score": None,
+            },
+            "reasoning_trace": ["❌ Query was empty after sanitization."],
+        }
 
     initial_state: AgentState = {
-        "messages": [HumanMessage(content=query)],
-        "query": query,
-        "location": "",
+        "messages": [HumanMessage(content=safe_query)],
+        "query": safe_query,
+        "context": safe_context or safe_query,
         "news_items": [],
         "problems": [],
         "solutions": [],
         "critiques": [],
         "iteration_count": 0,
-        "final_results": [],
-        "reasoning_steps": [],
+        "final_output": None,
+        "next_step": "finish",  # planner will overwrite this
     }
 
-    config = RunnableConfig(
+    run_config = RunnableConfig(
         configurable={"api_key": api_key, "max_results": max_results},
-        run_name="psgen-agent",
+        run_name="psgen-agentic-workflow",
     )
 
-    final_state = graph.invoke(initial_state, config=config)
+    try:
+        graph = compile_graph()
+        final_state: AgentState = graph.invoke(initial_state, config=run_config)
+    except Exception as exc:
+        logger.error("run_agentic_workflow: graph invocation failed — %s", exc, exc_info=True)
+        return {
+            "results": [],
+            "summary": {
+                "total_problems": 0,
+                "location": safe_context or safe_query,
+                "iterations_used": 0,
+                "average_critique_score": None,
+            },
+            "reasoning_trace": [f"❌ Workflow error: {exc}"],
+        }
+
+    output: dict = final_state.get("final_output") or {}
     return {
-        "final_results": final_state.get("final_results", []),
-        "reasoning_steps": final_state.get("reasoning_steps", []),
-        "messages": final_state.get("messages", []),
+        "results": output.get("results", []),
+        "summary": output.get(
+            "summary",
+            {
+                "total_problems": 0,
+                "location": safe_context or safe_query,
+                "iterations_used": 0,
+                "average_critique_score": None,
+            },
+        ),
+        "reasoning_trace": output.get("reasoning_trace", []),
     }
+
