@@ -1,0 +1,93 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Solution",
+  "description": "Structured format for a solution proposed by the solution-generator skill.",
+  "type": "object",
+  "required": ["title", "description", "steps", "difficulty", "expected_impact"],
+  "additionalProperties": false,
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "Short, action-oriented title (≤ 80 chars). Start with an imperative verb.",
+      "maxLength": 80,
+      "examples": ["Repair and upgrade water distribution network in eastern district"]
+    },
+    "description": {
+      "type": "string",
+      "description": "1–3 sentence narrative explaining the solution approach, why it works, and who benefits.",
+      "maxLength": 500,
+      "examples": [
+        "Replace the ageing cast-iron pipes in the eastern district with corrosion-resistant PVC pipes and install a real-time leak detection system. The upgrade will eliminate the recurring pipe bursts that have caused water outages for 180,000 residents. Implementation will be phased to keep at least 50% of supply online at all times."
+      ]
+    },
+    "steps": {
+      "type": "array",
+      "description": "Ordered list of concrete implementation steps. Each step starts with an imperative verb and names the responsible actor where possible.",
+      "minItems": 3,
+      "maxItems": 8,
+      "items": {
+        "type": "string",
+        "minLength": 10
+      },
+      "examples": [
+        [
+          "Deploy emergency water tankers to affected neighbourhoods within 24 hours (city water authority).",
+          "Conduct a full pipe condition survey across the eastern district within 2 weeks (engineering contractor).",
+          "Issue a public tender for pipe replacement works targeting completion within 6 months.",
+          "Install IoT-based pressure and flow sensors at 20 key junctions for real-time monitoring.",
+          "Establish a 24/7 leak response team with a 2-hour SLA for burst pipe incidents."
+        ]
+      ]
+    },
+    "difficulty": {
+      "type": "string",
+      "enum": ["easy", "medium", "hard"],
+      "description": "Implementation difficulty using the feasibility checklist rubric.",
+      "examples": ["medium"]
+    },
+    "estimated_cost": {
+      "type": ["string", "null"],
+      "description": "Rough cost range including currency symbol and time horizon. Null if genuinely unknown.",
+      "maxLength": 100,
+      "examples": ["$2M – $5M over 18 months", "₹15–25 Cr over 24 months", null]
+    },
+    "expected_impact": {
+      "type": "string",
+      "description": "Quantified or clearly qualified outcome after full implementation.",
+      "maxLength": 300,
+      "examples": [
+        "Eliminate water outages for 180,000 residents; reduce pipe burst incidents by ~80% within 12 months of completion."
+      ]
+    },
+    "short_term_action": {
+      "type": ["string", "null"],
+      "description": "The single most important immediate action (0–30 days) before the full solution is deployed.",
+      "maxLength": 200,
+      "examples": ["Deploy 20 water tankers to serve affected households within 48 hours."]
+    },
+    "stakeholders": {
+      "type": "array",
+      "description": "Key actors needed for implementation.",
+      "items": { "type": "string" },
+      "examples": [["City water authority", "Engineering contractor", "Central government (funding)", "Resident welfare associations"]]
+    }
+  },
+  "examples": [
+    {
+      "title": "Repair and upgrade water distribution network in eastern district",
+      "description": "Replace ageing pipes and install leak detection sensors to eliminate recurring outages affecting 180,000 residents.",
+      "steps": [
+        "Deploy emergency water tankers to affected neighbourhoods within 24 hours.",
+        "Conduct a full pipe condition survey within 2 weeks.",
+        "Issue a public tender for pipe replacement targeting 6-month completion.",
+        "Install IoT pressure sensors at 20 key junctions for real-time monitoring.",
+        "Establish a 24/7 leak response team with 2-hour SLA."
+      ],
+      "difficulty": "medium",
+      "estimated_cost": "$2M – $5M over 18 months",
+      "expected_impact": "Eliminate water outages for 180,000 residents; reduce burst incidents by ~80%.",
+      "short_term_action": "Deploy 20 water tankers within 48 hours.",
+      "stakeholders": ["City water authority", "Engineering contractor", "Central government", "Resident associations"]
+    }
+  ]
+}

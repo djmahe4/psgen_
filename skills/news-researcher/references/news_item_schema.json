@@ -1,0 +1,68 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "NewsItem",
+  "description": "Structured format for a single retrieved news article used throughout the psgen pipeline.",
+  "type": "object",
+  "required": ["title", "url", "summary", "source"],
+  "additionalProperties": false,
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "Headline of the article. Should be the original title, not paraphrased.",
+      "minLength": 5,
+      "maxLength": 300,
+      "examples": ["Flooding leaves 50,000 residents without power in coastal city"]
+    },
+    "url": {
+      "type": "string",
+      "format": "uri",
+      "description": "Canonical URL of the article. Must be http or https.",
+      "examples": ["https://example-news.com/article/flooding-2025-07"]
+    },
+    "summary": {
+      "type": "string",
+      "description": "Excerpt or auto-generated summary of the article body. Minimum 80 characters for reliable extraction.",
+      "minLength": 80,
+      "maxLength": 800,
+      "examples": [
+        "Floodwaters rose rapidly overnight, forcing evacuations across three low-lying districts. Emergency services reported over 50,000 residents displaced with no access to clean water or electricity. Authorities declared a state of emergency and called for federal relief assistance."
+      ]
+    },
+    "source": {
+      "type": "string",
+      "description": "Name of the publication, outlet, or platform. Use 'DuckDuckGo' if the originating outlet cannot be determined.",
+      "examples": ["The Daily Tribune", "Reuters", "BBC News", "DuckDuckGo"]
+    },
+    "published_date": {
+      "type": ["string", "null"],
+      "description": "ISO 8601 date string. Null if publication date cannot be extracted.",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+      "examples": ["2025-07-14", null]
+    },
+    "relevance_score": {
+      "type": "number",
+      "description": "Float in [0, 1] representing how relevant this item is to the search query. Computed by relevance_filtering logic; 0 = irrelevant, 1 = perfect match.",
+      "minimum": 0,
+      "maximum": 1,
+      "examples": [0.85, 0.62, 0.0]
+    }
+  },
+  "examples": [
+    {
+      "title": "City water plant shut down after contamination detected",
+      "url": "https://example.com/news/water-plant-shutdown",
+      "summary": "Municipal authorities shut the main water treatment plant serving 300,000 residents after routine testing revealed elevated lead levels. Residents have been advised to use bottled water. Repairs are estimated to take 2–3 weeks and costs remain unclear.",
+      "source": "City Herald",
+      "published_date": "2025-06-20",
+      "relevance_score": 0.92
+    },
+    {
+      "title": "Hospital strike enters third week as talks break down",
+      "url": "https://example.com/news/hospital-strike",
+      "summary": "Nursing staff at the regional hospital have continued their strike for a third consecutive week after wage negotiations collapsed. Non-emergency surgeries have been postponed and patient transfers to neighbouring facilities have increased by 40%.",
+      "source": "Health Watch Daily",
+      "published_date": "2025-07-01",
+      "relevance_score": 0.78
+    }
+  ]
+}

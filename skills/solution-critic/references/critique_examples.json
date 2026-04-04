@@ -1,0 +1,131 @@
+[
+  {
+    "id": "crit-001",
+    "domain": "water-infrastructure",
+    "input": {
+      "problem": {
+        "description": "Major water supply failure leaving 180,000 residents without tap water for up to 10 days",
+        "affected_people": 180000,
+        "severity": "critical",
+        "location": "Eastern District, [City]"
+      },
+      "solution": {
+        "title": "Repair pipes and raise awareness",
+        "description": "Fix the broken pipes and educate residents about water conservation.",
+        "steps": [
+          "Repair the broken pipe.",
+          "Raise awareness about water usage.",
+          "Coordinate with relevant authorities."
+        ],
+        "difficulty": "easy",
+        "estimated_cost": null,
+        "expected_impact": "Water supply restored and residents will use water more carefully."
+      }
+    },
+    "output": {
+      "realism_score": 4,
+      "feasibility_score": 4,
+      "cost_effectiveness_score": 3,
+      "unintended_consequences": [
+        "Without emergency tanker distribution, the 10-day repair window will cause health emergencies, especially for hospitals and elderly residents.",
+        "Undefined 'repair' step may mask the need for a full pipe replacement programme, leading to repeat failures."
+      ],
+      "improvement_suggestions": [
+        "Add an immediate action: deploy water tankers within 24 hours to serve priority locations.",
+        "Replace vague 'repair the broken pipe' with a specific phased replacement programme including timeline and contractor responsibilities.",
+        "Replace 'raise awareness about water usage' with a specific conservation campaign targeting affected households.",
+        "Add an estimated cost range based on pipe replacement benchmarks.",
+        "Include a monitoring step: daily water pressure testing at 5 key junctions during repair."
+      ],
+      "overall_score": 4,
+      "reasoning": "This solution identifies the right general direction (pipe repair) but fails on nearly every execution dimension. The first step is too vague to be actionable — 'repair the pipe' describes an outcome, not a plan. The awareness step is a textbook generic action trap (Pattern 1) that provides no immediate harm reduction for the 180,000 people currently without water. There is no immediate relief mechanism, no cost estimate, no stakeholder assignment, and no monitoring mechanism. The expected impact is partly false (awareness does not restore water supply). Feasibility is also low because without emergency tanker deployment, the situation will escalate to a health crisis before repairs complete."
+    }
+  },
+  {
+    "id": "crit-002",
+    "domain": "public-health",
+    "input": {
+      "problem": {
+        "description": "Foodborne illness outbreak from central market contamination affecting 20,000 daily visitors",
+        "affected_people": 20000,
+        "severity": "high",
+        "location": "Central Market District, [City]"
+      },
+      "solution": {
+        "title": "Contain outbreak, enforce vendor health standards, establish rapid-test lab",
+        "description": "Close affected market section, test all vendors, issue re-opening permits only to certified vendors, and create a permanent food-safety regime funded by a vendor fee.",
+        "steps": [
+          "Close affected market section for 72 hours and identify contaminated stalls — health authority.",
+          "Open 3 free treatment centres near the market within 24 hours.",
+          "Test food samples from all 200+ vendors within 5 days.",
+          "Issue re-opening permits only to vendors completing hygiene inspection and a 4-hour training.",
+          "Establish a permanent rapid-test lab funded by a vendor licensing fee surcharge.",
+          "Display a hygiene rating (A/B/C) at each stall, updated quarterly."
+        ],
+        "difficulty": "easy",
+        "estimated_cost": "$80,000 – $150,000 over 6 months",
+        "expected_impact": "Contain outbreak within 7 days; reduce foodborne illness cases by ~70% within 12 months."
+      }
+    },
+    "output": {
+      "realism_score": 8,
+      "feasibility_score": 7,
+      "cost_effectiveness_score": 9,
+      "unintended_consequences": [
+        "72-hour market closure will cause income loss for ~200 informal vendors; those without savings may face hardship.",
+        "Vendor fee surcharge to fund the lab may disproportionately burden small vendors and could be evaded."
+      ],
+      "improvement_suggestions": [
+        "Add a hardship support step: coordinate with local NGOs to provide 3-day income support for vendors displaced by the closure.",
+        "Introduce a sliding-scale vendor fee so micro-vendors pay less than large operators.",
+        "Add a 6-month and 12-month review checkpoint with defined KPIs (case rate, compliance rate)."
+      ],
+      "overall_score": 8,
+      "reasoning": "This is a well-structured, proportionate solution with clear short-term and long-term components. The immediate market closure is realistic and proportionate; the treatment centres address the current caseload; vendor certification prevents recurrence; and the lab funding model is self-sustaining. Cost is modest relative to the 20,000 daily exposure population. Main weaknesses are the unmitigated income impact on informal vendors and the assumption that all 200 vendors can be tested and trained within 5 days (capacity constraint worth noting). Adding equity safeguards and a monitoring mechanism would make this near-ideal."
+    }
+  },
+  {
+    "id": "crit-003",
+    "domain": "transportation-infrastructure",
+    "input": {
+      "problem": {
+        "description": "Chronic signal failures on northern rail causing daily 45–90-minute delays for 65,000 commuters",
+        "affected_people": 65000,
+        "severity": "medium",
+        "location": "Northern Rail Corridor, [Region]"
+      },
+      "solution": {
+        "title": "Use AI to automatically fix all signal failures",
+        "description": "Deploy an AI system to predict and prevent signal failures in real time.",
+        "steps": [
+          "Procure an AI platform for rail signal monitoring.",
+          "Connect all signals to the AI platform.",
+          "The AI will automatically predict and prevent failures."
+        ],
+        "difficulty": "easy",
+        "estimated_cost": "$500,000",
+        "expected_impact": "All signal failures eliminated within 3 months."
+      }
+    },
+    "output": {
+      "realism_score": 2,
+      "feasibility_score": 2,
+      "cost_effectiveness_score": 3,
+      "unintended_consequences": [
+        "Overreliance on a single AI platform creates a single point of failure — if the platform fails, there is no manual fallback.",
+        "AI prediction requires clean, structured sensor data; if the 1998-era infrastructure cannot provide this, the system will produce unreliable predictions.",
+        "During the 'connection' period, signal failures will continue at the current rate."
+      ],
+      "improvement_suggestions": [
+        "Replace 'AI will automatically prevent failures' with a specific ETCS digital signalling upgrade — the proven technology for this problem type.",
+        "Add a prerequisite step: install sensor infrastructure and validate data quality before any AI layer.",
+        "Add an immediate action: replace the top-20% highest-failure signal units within 3 months using existing maintenance budget.",
+        "Revise cost estimate — $500,000 is insufficient for either a full AI platform or a proper digital signalling upgrade on an 80 km corridor; $8–12M is more realistic.",
+        "Remove 'easy' difficulty — full signal modernisation on an 80 km corridor is 'hard'.",
+        "Add a manual back-up protocol during upgrade phases."
+      ],
+      "overall_score": 2,
+      "reasoning": "This solution exhibits the Magical Technology Fix anti-pattern (Pattern 3) in its most extreme form. AI signal prediction requires clean sensor data from modern equipment — the very infrastructure that is failing and was not upgraded since 1998. 'Connect all signals to the AI platform' is a multi-year infrastructure project presented as a single step. The 3-month timeline to eliminate all failures is not credible for any physical infrastructure upgrade. The $500k cost estimate is 10–20× below reality for the stated scope. The 'easy' difficulty rating contradicts all technical evidence. The solution also offers no immediate relief for the 65,000 daily commuters during the implementation period."
+    }
+  }
+]

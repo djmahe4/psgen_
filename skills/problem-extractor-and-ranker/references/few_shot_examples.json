@@ -1,0 +1,50 @@
+[
+  {
+    "id": "ex-001",
+    "domain": "water-infrastructure",
+    "input": {
+      "news_snippet": "Residents in the eastern district have been without tap water for five days after a major pipe burst near the main pumping station. City officials estimate that roughly 180,000 people are affected. Repair crews are on site but say the work may take up to ten days. Hospitals and schools in the area are operating on emergency reserves.",
+      "location": "Eastern District, [City]"
+    },
+    "output": {
+      "description": "Major water supply failure leaving 180,000 residents without tap water for up to 10 days",
+      "affected_people": 180000,
+      "severity": "critical",
+      "location": "Eastern District, [City]",
+      "evidence": "City officials estimate that roughly 180,000 people are affected"
+    },
+    "extractor_notes": "Severity escalated to critical because hospitals and schools are on emergency reserves — essential services are at risk. Root cause is infrastructure failure (pipe burst), not water scarcity."
+  },
+  {
+    "id": "ex-002",
+    "domain": "public-health",
+    "input": {
+      "news_snippet": "Health authorities have confirmed 340 cases of a gastrointestinal illness linked to contaminated street food vendors in the central market area. Two patients are in critical condition. The market serves approximately 20,000 visitors daily. Officials have issued a health advisory but have not yet shut down the market.",
+      "location": "Central Market District, [City]"
+    },
+    "output": {
+      "description": "Foodborne illness outbreak from central market contamination affecting daily visitors",
+      "affected_people": 20000,
+      "severity": "high",
+      "location": "Central Market District, [City]",
+      "evidence": "340 cases confirmed; two patients in critical condition; market serves 20,000 daily visitors"
+    },
+    "extractor_notes": "affected_people uses daily visitor count (20,000) as exposure population since the market is not closed. Severity is high rather than critical because the outbreak is contained and most cases are non-critical. Evidence combines the case count with the exposure estimate."
+  },
+  {
+    "id": "ex-003",
+    "domain": "transportation-infrastructure",
+    "input": {
+      "news_snippet": "Commuters on the northern rail corridor are facing chronic delays of 45–90 minutes following the failure of signal infrastructure that has not been upgraded since 1998. On average, 65,000 passengers use this route daily. The transport authority says funds for upgrades are not available until the next fiscal year.",
+      "location": "Northern Rail Corridor, [Region]"
+    },
+    "output": {
+      "description": "Chronic signal failures on northern rail causing daily 45–90-minute delays for 65,000 commuters",
+      "affected_people": 65000,
+      "severity": "medium",
+      "location": "Northern Rail Corridor, [Region]",
+      "evidence": "Signal infrastructure not upgraded since 1998; 65,000 daily passengers affected; no funding until next fiscal year"
+    },
+    "extractor_notes": "Classified as systemic (not acute) because the root cause is ageing infrastructure, not a sudden event. Severity is medium because delays are significant but there is no immediate safety or health risk. The funding note is included in evidence as it signals the issue will persist."
+  }
+]
